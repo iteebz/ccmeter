@@ -119,11 +119,15 @@ def _detect_installer() -> str:
 
 
 def _install_from_file(path: Path, installer: str) -> int:
+    """Install from a local wheel/sdist file, forcing cache bypass."""
+    s = str(path)
     if installer == "pipx":
-        return subprocess.run(["pipx", "upgrade", "ccmeter"], capture_output=True).returncode
+        return subprocess.run(["pipx", "install", s, "--force"], capture_output=True).returncode
     if installer == "uv":
-        return subprocess.run(["uv", "tool", "upgrade", "ccmeter"], capture_output=True).returncode
-    return subprocess.run([sys.executable, "-m", "pip", "install", str(path)], capture_output=True).returncode
+        return subprocess.run(["uv", "tool", "install", s, "--force"], capture_output=True).returncode
+    return subprocess.run(
+        [sys.executable, "-m", "pip", "install", s, "--force-reinstall"], capture_output=True
+    ).returncode
 
 
 def run_update():
