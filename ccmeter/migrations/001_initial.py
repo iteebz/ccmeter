@@ -1,7 +1,9 @@
 """Initial schema."""
 
+import sqlite3
 
-def up(conn):
+
+def up(conn: sqlite3.Connection) -> None:
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS usage_samples (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,

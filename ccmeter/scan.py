@@ -2,10 +2,12 @@
 
 import json
 import platform
+import sqlite3
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from ccmeter.activity import ActivityEvent, extract_activity
 from ccmeter.db import connect
@@ -39,7 +41,7 @@ class ScanResult:
     os: str = field(default_factory=lambda: platform.system().lower())
 
 
-def _token_to_dict(e: TokenEvent) -> dict:
+def _token_to_dict(e: TokenEvent) -> dict[str, Any]:
     return {
         "ts": e.ts, "in": e.input_tokens, "out": e.output_tokens,
         "cr": e.cache_read, "cc": e.cache_create,
@@ -47,7 +49,7 @@ def _token_to_dict(e: TokenEvent) -> dict:
     }
 
 
-def _dict_to_token(d: dict) -> TokenEvent:
+def _dict_to_token(d: dict[str, Any]) -> TokenEvent:
     return TokenEvent(
         ts=d["ts"], input_tokens=d["in"], output_tokens=d["out"],
         cache_read=d["cr"], cache_create=d["cc"],
@@ -55,7 +57,7 @@ def _dict_to_token(d: dict) -> TokenEvent:
     )
 
 
-def _activity_to_dict(e: ActivityEvent) -> dict:
+def _activity_to_dict(e: ActivityEvent) -> dict[str, Any]:
     return {
         "ts": e.ts, "tc": e.tool_calls, "r": e.reads, "w": e.writes,
         "b": e.bash, "la": e.lines_added, "lr": e.lines_removed,
@@ -63,7 +65,7 @@ def _activity_to_dict(e: ActivityEvent) -> dict:
     }
 
 
-def _dict_to_activity(d: dict) -> ActivityEvent:
+def _dict_to_activity(d: dict[str, Any]) -> ActivityEvent:
     return ActivityEvent(
         ts=d["ts"], tool_calls=d.get("tc", 0), reads=d.get("r", 0),
         writes=d.get("w", 0), bash=d.get("b", 0),
@@ -92,7 +94,7 @@ def scan(days: int = 30) -> ScanResult:
     if tty and total:
         progress(total, 0, "scan")
 
-    new_cache: list[tuple] = []
+    new_cache: list[tuple[str, float, int, int, str, str]] = []
     for i, jsonl in enumerate(files):
         key = str(jsonl)
         st = jsonl.stat()
@@ -137,7 +139,7 @@ def scan(days: int = 30) -> ScanResult:
     return result
 
 
-def _load_cache(conn) -> dict[str, tuple]:
+def _load_cache(conn: sqlite3.Connection) -> dict[str, tuple[float, int, list[TokenEvent], list[ActivityEvent]]]:
     """Load scan cache into memory. Returns {path: (mtime, size, events, activity)}."""
     # Invalidate if cache version changed
     stale = conn.execute(
@@ -160,7 +162,7 @@ def _load_cache(conn) -> dict[str, tuple]:
     return cache
 
 
-def _save_cache(conn, entries: list[tuple]):
+def _save_cache(conn: sqlite3.Connection, entries: list[tuple[str, float, int, int, str, str]]) -> None:
     """Write new/updated cache entries."""
     conn.executemany(
         "INSERT OR REPLACE INTO scan_cache (path, mtime, size, version, events, activity) VALUES (?, ?, ?, ?, ?, ?)",

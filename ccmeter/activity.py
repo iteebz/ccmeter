@@ -2,6 +2,7 @@
 
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
 READ_TOOLS = {"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch"}
 WRITE_TOOLS = {"Edit", "MultiEdit", "Write"}
@@ -26,7 +27,7 @@ class ActivityEvent:
     tool_name: str = ""
 
 
-def extract_activity(d: dict, msg_type: str, msg: dict) -> ActivityEvent | None:
+def extract_activity(d: dict[str, Any], msg_type: str, msg: dict[str, Any]) -> ActivityEvent | None:
     """Extract activity from an already-parsed JSONL line. Called during scan."""
     ts = d.get("timestamp", "")
     if not ts:
@@ -80,26 +81,33 @@ def extract_activity(d: dict, msg_type: str, msg: dict) -> ActivityEvent | None:
     return ev if hit else None
 
 
-def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> dict:
+def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> dict[str, Any]:
     """Sum activity metrics for events between two timestamps."""
-    totals = {
-        "prompts": 0, "turns": 0, "tool_calls": 0,
-        "reads": 0, "writes": 0, "bash": 0,
-        "lines_added": 0, "lines_removed": 0,
-        "tools": Counter(),
-    }
+    prompts = 0
+    turns = 0
+    tool_calls = 0
+    reads = 0
+    writes = 0
+    bash = 0
+    lines_added = 0
+    lines_removed = 0
+    tools: Counter[str] = Counter()
     for e in events:
         if e.ts < t0 or e.ts > t1:
             continue
-        totals["prompts"] += e.prompts
-        totals["turns"] += e.turns
-        totals["tool_calls"] += e.tool_calls
-        totals["reads"] += e.reads
-        totals["writes"] += e.writes
-        totals["bash"] += e.bash
-        totals["lines_added"] += e.lines_added
-        totals["lines_removed"] += e.lines_removed
+        prompts += e.prompts
+        turns += e.turns
+        tool_calls += e.tool_calls
+        reads += e.reads
+        writes += e.writes
+        bash += e.bash
+        lines_added += e.lines_added
+        lines_removed += e.lines_removed
         if e.tool_name:
-            totals["tools"][e.tool_name] += 1
-    totals["tools"] = dict(totals["tools"])
-    return totals
+            tools[e.tool_name] += 1
+    return {
+        "prompts": prompts, "turns": turns, "tool_calls": tool_calls,
+        "reads": reads, "writes": writes, "bash": bash,
+        "lines_added": lines_added, "lines_removed": lines_removed,
+        "tools": dict(tools),
+    }

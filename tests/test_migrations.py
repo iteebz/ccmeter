@@ -1,11 +1,12 @@
 """Test migration runner."""
 
 import sqlite3
+from pathlib import Path
 
 from ccmeter.migrations import migrate
 
 
-def test_migrate_creates_tables(tmp_path):
+def test_migrate_creates_tables(tmp_path: Path) -> None:
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
@@ -22,7 +23,7 @@ def test_migrate_creates_tables(tmp_path):
     conn.close()
 
 
-def test_migrate_idempotent(tmp_path):
+def test_migrate_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row

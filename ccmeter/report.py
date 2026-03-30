@@ -1,8 +1,10 @@
 """Generate calibration report by cross-referencing usage ticks against JSONL token data."""
 
 import json
+import sqlite3
 import sys
 from collections import defaultdict
+from typing import Any
 
 from ccmeter import __version__
 from ccmeter.activity import ActivityEvent, activity_in_window
@@ -29,7 +31,7 @@ def _pricing_for(model: str) -> dict[str, float]:
     return FALLBACK_PRICING
 
 
-def _cost_usd(tokens: dict, model: str) -> float:
+def _cost_usd(tokens: dict[str, int], model: str) -> float:
     """Compute API-equivalent cost in USD for a token breakdown."""
     rates = _pricing_for(model)
     return sum(tokens.get(k, 0) * rates.get(k, 0) / 1_000_000 for k in ("input", "output", "cache_read", "cache_create"))
@@ -39,7 +41,7 @@ def _pl(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def tokens_in_window(events, t0: str, t1: str) -> dict[str, dict]:
+def tokens_in_window(events: list[Any], t0: str, t1: str) -> dict[str, dict[str, int]]:
     """Sum token counts per model for events between two timestamps."""
     by_model = defaultdict(lambda: {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0, "count": 0})
     for e in events:
@@ -53,7 +55,7 @@ def tokens_in_window(events, t0: str, t1: str) -> dict[str, dict]:
     return dict(by_model)
 
 
-def calibrate_bucket(bucket: str, events, conn, activity_events: list[ActivityEvent] | None = None) -> list[dict]:
+def calibrate_bucket(bucket: str, events: list[Any], conn: sqlite3.Connection, activity_events: list[ActivityEvent] | None = None) -> list[dict[str, Any]]:
     """Find utilization ticks and calculate tokens per percent per model."""
     rows = conn.execute(
         """
@@ -134,7 +136,7 @@ def run_report(days: int = 30, json_output: bool = False):
         return
 
     buckets = ["five_hour", "seven_day", "seven_day_sonnet"]
-    report_data = {
+    report_data: dict[str, Any] = {
         "version": __version__,
         "tier": tier,
         "rate_limit_tier": rate_tier,
@@ -153,8 +155,8 @@ def run_report(days: int = 30, json_output: bool = False):
         if not cals:
             continue
 
-        model_agg = defaultdict(lambda: {"ticks": 0, "total_per_pct": [], "cost_per_pct": []})
-        activity_agg = defaultdict(lambda: {"ticks": 0, "values": []})
+        model_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"ticks": 0, "total_per_pct": [], "cost_per_pct": []})
+        activity_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"ticks": 0, "values": []})
         for cal in cals:
             for model, data in cal["models"].items():
                 model_agg[model]["ticks"] += 1
@@ -207,6 +209,7 @@ def run_report(days: int = 30, json_output: bool = False):
 _DIM = "\033[2m"
 _BOLD = "\033[1m"
 _CYAN = "\033[36m"
+_RED = "\033[31m"
 _GREEN = "\033[32m"
 _YELLOW = "\033[33m"
 _WHITE = "\033[37m"
@@ -224,7 +227,7 @@ def _hr(width: int = 50) -> str:
     return _c(_RULE, "─" * width)
 
 
-def _print_report(data: dict):
+def _print_report(data: dict[str, Any]) -> None:
     print()
     print(f"  {_c(_BOLD + _WHITE, 'ccmeter')} {_c(_DIM, f'v{data.get("version", "?")}')}    {_c(_PINK, data['tier'])} {_c(_DIM, data['rate_limit_tier'])}")
     print(f"  {_c(_DIM, f'{data["sessions"]:,} sessions  ·  {data["token_events"]:,} events  ·  {data["usage_samples"]} samples  ·  {data["lookback_days"]}d window')}")
@@ -269,7 +272,7 @@ def _print_report(data: dict):
                 added = act.get("lines_added", 0)
                 removed = act.get("lines_removed", 0)
                 if added or removed:
-                    print(f"           {_c(_GREEN, f'+{added:.0f}')} / {_c(_YELLOW, f'-{removed:.0f}')} {_c(_DIM, 'lines')}")
+                    print(f"           {_c(_GREEN, f'+{added:.0f}')} / {_c(_RED, f'-{removed:.0f}')} {_c(_DIM, 'lines')}")
             print()
 
     print(f"  {_c(_DIM, '⚠  claude.ai + claude code simultaneously = inflated counts')}")

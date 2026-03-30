@@ -2,10 +2,13 @@
 
 import json
 import signal
+import sqlite3
 import sys
 import time
+import types
 import urllib.error
 import urllib.request
+from typing import Any
 
 from ccmeter.auth import Credentials, get_credentials
 from ccmeter.db import connect
@@ -18,13 +21,13 @@ BUCKETS = ("five_hour", "seven_day", "seven_day_sonnet", "seven_day_opus", "seve
 _running = True
 
 
-def _handle_signal(sig, frame):
+def _handle_signal(sig: int, frame: types.FrameType | None) -> None:
     global _running
     _running = False
     print("\nshutting down...")
 
 
-def fetch_usage(creds: Credentials) -> dict | None:
+def fetch_usage(creds: Credentials) -> dict[str, Any] | None:
     """Fetch current usage from Anthropic's OAuth endpoint."""
     req = urllib.request.Request(
         USAGE_URL,
@@ -41,7 +44,7 @@ def fetch_usage(creds: Credentials) -> dict | None:
         return None
 
 
-def record_samples(data: dict, last_seen: dict, conn, tier: str | None = None) -> dict:
+def record_samples(data: dict[str, Any], last_seen: dict[str, float], conn: sqlite3.Connection, tier: str | None = None) -> dict[str, float]:
     """Write rows for any bucket that changed. Returns updated last_seen."""
     for key, value in data.items():
         if not isinstance(value, dict):
@@ -74,7 +77,7 @@ def record_samples(data: dict, last_seen: dict, conn, tier: str | None = None) -
     return last_seen
 
 
-def seed_last_seen(conn) -> dict:
+def seed_last_seen(conn: sqlite3.Connection) -> dict[str, float]:
     """Load most recent utilization per bucket from DB to avoid duplicate rows on restart."""
     last_seen = {}
     rows = conn.execute(

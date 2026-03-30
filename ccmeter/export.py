@@ -1,6 +1,7 @@
 """Export anonymized calibration data for community sharing."""
 
 import json
+from typing import Any
 
 from ccmeter import __version__
 from ccmeter.auth import get_credentials
@@ -31,7 +32,7 @@ def run_export(days: int = 30):
         return
 
     buckets = ["five_hour", "seven_day", "seven_day_sonnet"]
-    export = {
+    export: dict[str, Any] = {
         "ccmeter_version": __version__,
         "tier": tier,
         "rate_limit_tier": rate_tier,

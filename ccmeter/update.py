@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 from urllib.request import Request, urlopen
 
 from ccmeter import __version__
@@ -26,7 +27,7 @@ def _fetch_latest() -> str | None:
         return None
 
 
-def _fetch_release(version: str) -> dict | None:
+def _fetch_release(version: str) -> dict[str, Any] | None:
     """Get release metadata including wheel URL and size."""
     try:
         with urlopen(PYPI_URL, timeout=5) as resp:

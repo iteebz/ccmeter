@@ -1,13 +1,17 @@
 """Test calibration math."""
 
 import sqlite3
+from pathlib import Path
 
 from ccmeter.migrations import migrate
 from ccmeter.report import calibrate_bucket, tokens_in_window
 from ccmeter.scan import TokenEvent
 
 
-def _make_event(ts, model="claude-opus-4-6", input_tokens=100, output_tokens=50, cache_read=1000, cache_create=200):
+def _make_event(
+    ts: str, model: str = "claude-opus-4-6", input_tokens: int = 100,
+    output_tokens: int = 50, cache_read: int = 1000, cache_create: int = 200,
+) -> TokenEvent:
     return TokenEvent(
         ts=ts,
         input_tokens=input_tokens,
@@ -40,7 +44,7 @@ def test_tokens_in_window_groups_by_model():
     assert result["claude-sonnet-4-6"]["input"] == 500
 
 
-def test_calibrate_bucket_computes_tokens_per_pct(tmp_path):
+def test_calibrate_bucket_computes_tokens_per_pct(tmp_path: Path) -> None:
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
@@ -71,7 +75,7 @@ def test_calibrate_bucket_computes_tokens_per_pct(tmp_path):
     conn.close()
 
 
-def test_calibrate_skips_decreasing_utilization(tmp_path):
+def test_calibrate_skips_decreasing_utilization(tmp_path: Path) -> None:
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
