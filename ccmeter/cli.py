@@ -22,19 +22,19 @@ def poll(interval: int = 120, once: bool = False):
 
 
 @fncli.cli("ccmeter")
-def history(days: int = 7, json: bool = False):
-    """show usage sample history"""
-    from ccmeter.history import show_history
+def report(days: int = 30, json: bool = False):
+    """show calibration report: what does 1% actually cost in tokens"""
+    from ccmeter.report import run_report
 
-    show_history(days=days, json_output=json)
+    run_report(days=days, json_output=json)
 
 
 @fncli.cli("ccmeter")
-def calibrate(bucket: str = "five_hour"):
-    """calculate what 1% actually means in tokens"""
-    from ccmeter.calibrate import run_calibrate
+def history(days: int = 7, json: bool = False):
+    """show raw usage sample history"""
+    from ccmeter.history import show_history
 
-    run_calibrate(bucket=bucket)
+    show_history(days=days, json_output=json)
 
 
 @fncli.cli("ccmeter")
@@ -43,6 +43,22 @@ def status():
     from ccmeter.status import show_status
 
     show_status()
+
+
+@fncli.cli("ccmeter")
+def install():
+    """install ccmeter as a background daemon (survives restarts)"""
+    from ccmeter.daemon import install as do_install
+
+    raise SystemExit(do_install())
+
+
+@fncli.cli("ccmeter")
+def uninstall():
+    """stop and remove the background daemon"""
+    from ccmeter.daemon import uninstall as do_uninstall
+
+    raise SystemExit(do_uninstall())
 
 
 def main():
