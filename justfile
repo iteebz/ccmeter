@@ -13,10 +13,13 @@ format:
 lint:
     uv run ruff check .
 
+typecheck:
+    uv run pyright
+
 test:
     uv run pytest tests/ -q
 
-ci: lint test
+ci: lint typecheck test
 
 release VERSION: ci
     #!/usr/bin/env bash

@@ -35,9 +35,20 @@ Issues = "https://github.com/iteebz/ccmeter/issues"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.13.0",
+    "pyright>=1.1.408",
     "pytest>=8.4.0",
+    "ruff>=0.13.0",
 ]
+
+[tool.pyright]
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "strict"
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
 
 [tool.hatch.build.targets.wheel]
 packages = ["ccmeter"]
