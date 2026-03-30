@@ -113,10 +113,14 @@ def scan(days: int = 30, recache: bool = False) -> ScanResult:
         st = f.stat()
         if st.st_mtime >= cutoff_ts:
             file_stats.append((f, st))
+
     tty = sys.stdout.isatty()
     total = len(file_stats)
 
     conn = connect()
+
+    # Prune cache entries for files outside the lookback window
+    _prune_cache(conn, {str(f) for f, _ in file_stats})
     if recache:
         conn.execute("DELETE FROM scan_cache")
         conn.commit()
@@ -196,6 +200,17 @@ def _load_cache(conn: sqlite3.Connection) -> dict[str, tuple[float, int, list[To
         except Exception:  # noqa: S112, PERF203
             continue
     return cache
+
+
+def _prune_cache(conn: sqlite3.Connection, active_paths: set[str]) -> None:
+    """Remove cache entries for files no longer in the lookback window."""
+    cached = {row[0] for row in conn.execute("SELECT path FROM scan_cache").fetchall()}
+    stale = cached - active_paths
+    if stale:
+        conn.executemany("DELETE FROM scan_cache WHERE path = ?", [(p,) for p in stale])
+        conn.commit()
+        conn.execute("VACUUM")
+
 
 
 def _save_cache(conn: sqlite3.Connection, entries: list[tuple[str, float, int, int, str, str]]) -> None:
