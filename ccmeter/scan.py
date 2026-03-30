@@ -193,7 +193,7 @@ def _load_cache(conn: sqlite3.Connection) -> dict[str, tuple[float, int, list[To
             events = [_dict_to_token(d) for d in json.loads(row["events"])]
             activity = [_dict_to_activity(d) for d in json.loads(row["activity"])]
             cache[row["path"]] = (row["mtime"], row["size"], events, activity)
-        except Exception:  # noqa: S112
+        except Exception:  # noqa: S112, PERF203
             continue
     return cache
 
