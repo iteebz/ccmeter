@@ -77,6 +77,12 @@ def ago(iso_ts: str) -> str:
     return f"{secs // 86400}d ago"
 
 
+def gradient_text(text: str) -> str:
+    """Apply the purple→pink gradient across each character."""
+    n = len(text)
+    return "".join(f"{gradient(i, n)}{ch}" for i, ch in enumerate(text)) + RESET
+
+
 def gradient(i: int, width: int) -> str:
     t = i / max(width - 1, 1)
     r = int(_GRAD_START[0] + (_GRAD_END[0] - _GRAD_START[0]) * t)

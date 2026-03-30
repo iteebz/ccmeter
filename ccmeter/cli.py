@@ -84,5 +84,45 @@ def uninstall():
     raise SystemExit(do_uninstall())
 
 
+def _print_help():
+    from ccmeter.display import BOLD, DIM, RESET, WHITE, c, gradient_text, hr
+
+    print()
+    print(f"  {BOLD}{gradient_text('ccmeter')}{RESET} {c(DIM, __version__)}")
+    tagline = "the number anthropic won't publish"
+    print(f"  {c(DIM, tagline)}")
+    print()
+
+    for cmd, desc in [
+        ("install", "background daemon — set it and forget it"),
+        ("report", "your budget in dollars, per window"),
+        ("status", "current utilization and collection health"),
+        ("trend", "budget over time as a sparkline chart"),
+        ("history", "raw usage samples"),
+    ]:
+        print(f"  {c(WHITE, f'{cmd:<10}')} {c(DIM, desc)}")
+
+    print()
+    print(f"  {hr(40)}")
+    print()
+
+    for cmd, desc in [
+        ("update", "check for and install updates"),
+        ("uninstall", "remove the background daemon"),
+    ]:
+        print(f"  {c(DIM, f'{cmd:<10} {desc}')}")
+
+    print()
+    print(f"  {c(DIM, 'ccmeter <command> --help for details')}")
+    print()
+
+
 def main():
-    raise SystemExit(fncli.dispatch(["ccmeter", *sys.argv[1:]]))
+    args = sys.argv[1:]
+    if not args or args == ["--help"] or args == ["-h"]:
+        _print_help()
+        from ccmeter.update import check_version
+
+        check_version()
+        raise SystemExit(0)
+    raise SystemExit(fncli.dispatch(["ccmeter", *args]))

@@ -99,7 +99,9 @@ def check_version(quiet: bool = False) -> str | None:
 
     if _version_tuple(latest) > _version_tuple(__version__):
         if not quiet:
-            print(f"  update available: {__version__} -> {latest} (ccmeter update)")
+            from ccmeter.display import BOLD, DIM, WHITE, c
+
+            print(f"  {c(BOLD + WHITE, latest)} {c(DIM, 'available')}  →  {c(WHITE, 'ccmeter update')}")
         return latest
     return None
 
