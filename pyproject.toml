@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ccmeter"
-version = "0.0.1"
+version = "0.1.0"
 description = "Reverse-engineer Anthropic's opaque Claude subscription limits into hard numbers"
 authors = [{name = "Tyson Chan", email = "tyson.chan@proton.me"}]
 keywords = ["claude", "anthropic", "usage", "limits", "transparency", "metering"]
