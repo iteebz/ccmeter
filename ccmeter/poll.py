@@ -59,7 +59,7 @@ def record_samples(
             continue
 
         prev = last_seen.get(key)
-        if prev is not None and prev == utilization:
+        if prev is not None and abs(prev - utilization) < 1e-9:
             continue
 
         resets_at = value.get("resets_at")
