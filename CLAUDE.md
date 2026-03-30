@@ -42,6 +42,20 @@ Zero external deps beyond `fncli`. stdlib `urllib` for HTTP.
 - Deferred imports in CLI handlers
 - `just format` / `just lint`
 
+## Development
+
+```bash
+uv sync                    # install deps
+uv run ccmeter --help      # run locally
+uv run ccmeter poll --once # single poll to verify auth works
+uv run ccmeter report      # test report generation
+just format                # ruff format + fix
+just lint                  # ruff check
+just test                  # pytest
+```
+
+Test against real data — the tool reads from your local `~/.claude/` and OS keychain. No mocks needed for integration testing. Unit tests should mock the keychain and API calls.
+
 ## Roadmap
 
 - [ ] Confidence intervals on calibration (need more data)
