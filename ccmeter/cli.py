@@ -89,7 +89,7 @@ def _print_help():
 
     print()
     print(f"  {BOLD}{gradient_text('ccmeter')}{RESET} {c(DIM, __version__)}")
-    tagline = "the number anthropic won't publish"
+    tagline = "measure your actual limits"
     print(f"  {c(DIM, tagline)}")
     print()
 
