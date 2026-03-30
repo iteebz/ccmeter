@@ -1,5 +1,6 @@
 """Generate calibration report by cross-referencing usage ticks against JSONL token data."""
 
+import bisect
 import json
 import sqlite3
 from collections import defaultdict
@@ -68,17 +69,19 @@ def _tier_label(rate_limit_tier: str, multiplier: int) -> str:
 
 def tokens_in_window(events: list[Any], t0: str, t1: str) -> dict[str, dict[str, int]]:
     """Sum token counts per model for events between two timestamps."""
+    lo = bisect.bisect_left(events, t0, key=lambda e: e.ts)
+    hi = bisect.bisect_right(events, t1, key=lambda e: e.ts)
     by_model: dict[str, dict[str, int]] = defaultdict(
         lambda: {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0, "count": 0}
     )
-    for e in events:
-        if t0 <= e.ts <= t1:
-            m = e.model or "unknown"
-            by_model[m]["input"] += e.input_tokens
-            by_model[m]["output"] += e.output_tokens
-            by_model[m]["cache_read"] += e.cache_read
-            by_model[m]["cache_create"] += e.cache_create
-            by_model[m]["count"] += 1
+    for i in range(lo, hi):
+        e = events[i]
+        m = e.model or "unknown"
+        by_model[m]["input"] += e.input_tokens
+        by_model[m]["output"] += e.output_tokens
+        by_model[m]["cache_read"] += e.cache_read
+        by_model[m]["cache_create"] += e.cache_create
+        by_model[m]["count"] += 1
     return dict(by_model)
 
 

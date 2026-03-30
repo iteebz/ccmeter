@@ -168,6 +168,7 @@ def scan(days: int = 30) -> ScanResult:
 
     result.sessions = len(seen_sessions)
     result.events.sort(key=lambda e: e.ts)
+    result.activity.sort(key=lambda e: e.ts)
     return result
 
 

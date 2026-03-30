@@ -82,6 +82,10 @@ def extract_activity(d: dict[str, Any], msg_type: str, msg: dict[str, Any]) -> A
 
 def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> dict[str, Any]:
     """Sum activity metrics for events between two timestamps."""
+    import bisect
+
+    lo = bisect.bisect_left(events, t0, key=lambda e: e.ts)
+    hi = bisect.bisect_right(events, t1, key=lambda e: e.ts)
     prompts = 0
     turns = 0
     tool_calls = 0
@@ -91,9 +95,8 @@ def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> dict[st
     lines_added = 0
     lines_removed = 0
     tools: Counter[str] = Counter()
-    for e in events:
-        if e.ts < t0 or e.ts > t1:
-            continue
+    for i in range(lo, hi):
+        e = events[i]
         prompts += e.prompts
         turns += e.turns
         tool_calls += e.tool_calls
