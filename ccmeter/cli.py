@@ -34,6 +34,14 @@ def report(days: int = 30, json: bool = False, recache: bool = False):
 
 
 @fncli.cli("ccmeter")
+def share(days: int = 30):
+    """anonymized output for crowdsourced comparison"""
+    from ccmeter.share import run_share
+
+    run_share(days=days)
+
+
+@fncli.cli("ccmeter")
 def history(days: int = 7, json: bool = False):
     """show raw usage sample history"""
     from ccmeter.history import show_history
@@ -98,6 +106,7 @@ def _print_help():
         ("report", "your budget in dollars, per window"),
         ("status", "current utilization and collection health"),
         ("trend", "budget over time as a sparkline chart"),
+        ("share", "anonymized data for crowdsourced comparison"),
         ("history", "raw usage samples"),
     ]:
         print(f"  {c(WHITE, f'{cmd:<10}')} {c(DIM, desc)}")
