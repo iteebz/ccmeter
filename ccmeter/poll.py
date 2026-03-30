@@ -145,9 +145,24 @@ def _acquire_lock() -> Any:
     return f
 
 
+LOG_DIR = Path.home() / ".ccmeter"
+MAX_LOG_BYTES = 512 * 1024  # 512KB
+
+
+def _rotate_logs() -> None:
+    """Truncate log files if they exceed MAX_LOG_BYTES."""
+    for name in ("poll.log", "poll.err"):
+        log = LOG_DIR / name
+        if log.exists() and log.stat().st_size > MAX_LOG_BYTES:
+            # Keep the last 64KB
+            data = log.read_bytes()[-65536:]
+            log.write_bytes(data)
+
+
 def run_poll(interval: int = 120, once: bool = False):
     """Main poll loop."""
     lock = _acquire_lock()
+    _rotate_logs()
     creds = get_credentials()
     if not creds:
         print("error: could not find Claude Code OAuth token in OS keychain", file=sys.stderr)
