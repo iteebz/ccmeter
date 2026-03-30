@@ -1,3 +1,3 @@
 """cc-meter: Reverse-engineer Anthropic's opaque Claude subscription limits into hard numbers."""
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
