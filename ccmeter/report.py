@@ -217,9 +217,8 @@ def _print_report(data: dict):
             print(f"  {_c(_YELLOW, f'⚠ {_pl(bdata["mixed_ticks"], "tick")} had mixed models — calibration is approximate')}")
         for model, mdata in sorted(bdata["models"].items()):
             tpp = mdata["avg_per_pct"]
-            cost = mdata["avg_cost_per_pct"]
             print(f"  {_c(_CYAN, model)} {_c(_DIM, f'({_pl(mdata["ticks"], "tick")})')}")
-            print(f"    1% ≈ {_c(_BOLD, f'{mdata["avg_total_per_pct"]:,}')} tokens {_c(_GREEN, f'(${cost:.2f} at API rates)')}")
+            print(f"    1% ≈ {_c(_BOLD, f'{mdata["avg_total_per_pct"]:,}')} tokens")
             print(
                 f"    {_c(_DIM, '     ')} "
                 f"{_c(_PURPLE, f'{tpp["input"]:,}')} {_c(_DIM, 'in')} / "
