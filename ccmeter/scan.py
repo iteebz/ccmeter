@@ -17,7 +17,7 @@ from ccmeter.display import progress, progress_done
 CLAUDE_DIR = Path.home() / ".claude" / "projects"
 
 # Bump when parse logic changes to auto-invalidate cache.
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 @dataclass
@@ -225,7 +225,8 @@ def _scan_file(path: Path, cutoff: str) -> tuple[list[TokenEvent], list[Activity
                     continue
 
                 usage = msg.get("usage")
-                if usage:
+                model = msg.get("model", "")
+                if usage and model and not model.startswith("<"):
                     events.append(
                         TokenEvent(
                             ts=ts,
@@ -233,7 +234,7 @@ def _scan_file(path: Path, cutoff: str) -> tuple[list[TokenEvent], list[Activity
                             output_tokens=usage.get("output_tokens", 0),
                             cache_read=usage.get("cache_read_input_tokens", 0),
                             cache_create=usage.get("cache_creation_input_tokens", 0),
-                            model=msg.get("model", ""),
+                            model=model,
                             session_id=d.get("sessionId", ""),
                             cc_version=d.get("version", ""),
                         )
