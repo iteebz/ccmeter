@@ -250,12 +250,13 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
         prev_budget = prev["budget"] if prev else None
         prev_ts = prev["ts"] if prev else None
 
-        # Store this run's budget
-        conn.execute(
-            "INSERT INTO budget_history (bucket, budget, base_budget, multiplier, ticks, rate_tier) VALUES (?, ?, ?, ?, ?, ?)",
-            (bucket, capacity, base_budget, multiplier, len(cals), rate_tier),
-        )
-        conn.commit()
+        # Store this run's budget only if it changed
+        if prev_budget is None or abs(capacity - prev_budget) / prev_budget >= 0.005:
+            conn.execute(
+                "INSERT INTO budget_history (bucket, budget, base_budget, multiplier, ticks, rate_tier) VALUES (?, ?, ?, ?, ?, ?)",
+                (bucket, capacity, base_budget, multiplier, len(cals), rate_tier),
+            )
+            conn.commit()
 
         report_data["buckets"][bucket] = {
             "ticks": len(cals),
