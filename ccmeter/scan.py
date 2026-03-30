@@ -16,7 +16,7 @@ from ccmeter.display import progress, progress_done
 CLAUDE_DIR = Path.home() / ".claude" / "projects"
 
 # Bump when parse logic changes to auto-invalidate cache.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 @dataclass
@@ -203,7 +203,7 @@ def _scan_file(path: Path, cutoff: str) -> tuple[list[TokenEvent], list[Activity
     try:
         with path.open() as f:
             for line in f:
-                if '"usage"' not in line and '"tool_use"' not in line:
+                if '"usage"' not in line and '"tool_use"' not in line and '"user"' not in line:
                     continue
                 try:
                     d = json.loads(line)
