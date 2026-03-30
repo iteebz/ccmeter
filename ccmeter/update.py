@@ -120,7 +120,7 @@ def _install_from_file(path: Path, installer: str) -> int:
     if installer == "pipx":
         return subprocess.run(["pipx", "upgrade", "ccmeter"], capture_output=True).returncode
     if installer == "uv":
-        return subprocess.run(["uv", "pip", "install", str(path)], capture_output=True).returncode
+        return subprocess.run(["uv", "tool", "upgrade", "ccmeter"], capture_output=True).returncode
     return subprocess.run([sys.executable, "-m", "pip", "install", str(path)], capture_output=True).returncode
 
 
