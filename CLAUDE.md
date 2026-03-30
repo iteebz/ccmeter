@@ -58,7 +58,7 @@ Raw token totals are misleading. A session that's 99% cache reads looks like mil
 
 ```bash
 uv sync                    # install deps
-uv run ccmeter --help      # run locally
+uv run ccmeter --help      # run dev version
 uv run ccmeter poll --once # single poll to verify auth works
 uv run ccmeter report      # test report generation
 just format                # ruff format + fix
@@ -67,5 +67,7 @@ just typecheck             # pyright strict
 just test                  # pytest
 just ci                    # lint + typecheck + test
 ```
+
+`uv run ccmeter` runs the local dev version from source. `ccmeter` in PATH should point to the latest PyPI release (via `pip install ccmeter` or `uv tool install ccmeter`). Never symlink dev into PATH.
 
 Test against real data — the tool reads from your local `~/.claude/` and OS keychain. No mocks needed for integration testing. Unit tests should mock the keychain and API calls.
