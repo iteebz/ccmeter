@@ -42,6 +42,14 @@ def history(days: int = 7, json: bool = False):
 
 
 @fncli.cli("ccmeter")
+def trend(days: int = 30, recache: bool = False):
+    """sparkline chart of budget over time from calibration ticks"""
+    from ccmeter.trend import show_trend
+
+    show_trend(days=days, recache=recache)
+
+
+@fncli.cli("ccmeter")
 def status():
     """show current usage and collection stats"""
     from ccmeter.status import show_status

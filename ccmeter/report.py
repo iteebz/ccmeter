@@ -10,7 +10,7 @@ from ccmeter import __version__
 from ccmeter.activity import ActivityEvent, activity_in_window
 from ccmeter.auth import get_credentials
 from ccmeter.db import connect
-from ccmeter.display import BOLD, CYAN, DIM, GREEN, PINK, PURPLE, RED, WHITE, YELLOW, ago, c, hr, human, pl
+from ccmeter.display import BOLD, CYAN, DIM, GREEN, PINK, PURPLE, RED, WHITE, YELLOW, c, hr, human, pl
 from ccmeter.scan import scan
 
 # API pricing per MTok (USD).
@@ -242,21 +242,24 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
         capacity = avg_cost * 100
         base_budget = capacity / multiplier if multiplier > 1 else capacity
 
-        # Fetch previous budget for trend
-        prev = conn.execute(
-            "SELECT budget, ts FROM budget_history WHERE bucket = ? ORDER BY ts DESC LIMIT 1",
-            (bucket,),
-        ).fetchone()
-        prev_budget = prev["budget"] if prev else None
-        prev_ts = prev["ts"] if prev else None
-
-        # Store this run's budget only if it changed
-        if prev_budget is None or abs(capacity - prev_budget) / prev_budget >= 0.005:
-            conn.execute(
-                "INSERT INTO budget_history (bucket, budget, base_budget, multiplier, ticks, rate_tier) VALUES (?, ?, ?, ?, ?, ?)",
-                (bucket, capacity, base_budget, multiplier, len(cals), rate_tier),
-            )
-            conn.commit()
+        # Tick-based trend: compare first half vs second half
+        tick_trend = None
+        if len(cals) >= 4:
+            mid = len(cals) // 2
+            early_avg = sum(c["cost_per_pct"] for c in cals[:mid]) / mid
+            late_avg = sum(c["cost_per_pct"] for c in cals[mid:]) / (len(cals) - mid)
+            early_budget = early_avg * 100
+            late_budget = late_avg * 100
+            if early_budget > 0:
+                shift = (late_budget - early_budget) / early_budget * 100
+                if abs(shift) >= 0.5:
+                    tick_trend = {
+                        "early": early_budget,
+                        "late": late_budget,
+                        "shift": shift,
+                        "early_ts": cals[0]["t0"],
+                        "late_ts": cals[-1]["t1"],
+                    }
 
         report_data["buckets"][bucket] = {
             "ticks": len(cals),
@@ -264,8 +267,8 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
             "avg_cost_per_pct": avg_cost,
             "capacity": capacity,
             "base_budget": base_budget,
-            "prev_budget": prev_budget,
-            "prev_ts": prev_ts,
+            "tick_trend": tick_trend,
+            "tick_costs": [{"ts": cal["t0"], "cost_per_pct": cal["cost_per_pct"]} for cal in cals],
             "models": model_summary,
             "activity_per_pct": activity_summary,
         }
@@ -310,16 +313,14 @@ def _print_report(data: dict[str, Any]) -> None:
             budget_line += f"  {c(DIM, '=')} {c(DIM, f'{multiplier}x')} {c(DIM, 'x')} {c(WHITE, f'${base:.2f}')} {c(DIM, 'pro base')}"
         print(budget_line)
 
-        # Trend: compare to previous report
-        prev_budget = bdata.get("prev_budget")
-        prev_ts = bdata.get("prev_ts")
-        if prev_budget is not None and prev_ts:
-            delta_pct = (capacity - prev_budget) / prev_budget * 100
-            if abs(delta_pct) >= 0.5:
-                arrow = c(GREEN, f"+{delta_pct:.1f}%") if delta_pct > 0 else c(RED, f"{delta_pct:.1f}%")
-                print(f"  {arrow} {c(DIM, f'was ${prev_budget:.2f}')} {c(DIM, ago(prev_ts))}")
-            else:
-                print(f"  {c(DIM, f'stable since {ago(prev_ts)}')}")
+        # Trend: compare early ticks vs late ticks
+        trend = bdata.get("tick_trend")
+        if trend:
+            shift = trend["shift"]
+            arrow = c(GREEN, f"+{shift:.1f}%") if shift > 0 else c(RED, f"{shift:.1f}%")
+            print(f"  {arrow} {c(DIM, f'early ${trend["early"]:.0f} → late ${trend["late"]:.0f}')}")
+        elif bdata["ticks"] >= 4:
+            print(f"  {c(DIM, 'stable across ticks')}")
         print()
 
         if bdata["mixed_ticks"]:
