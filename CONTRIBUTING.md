@@ -1,8 +1,8 @@
-# Contributing
+# contributing
 
-## Share your data
+## share your data
 
-The most valuable contribution is just running ccmeter and sharing your report:
+the most valuable contribution is running ccmeter and sharing your report:
 
 ```bash
 pip install ccmeter
@@ -11,11 +11,11 @@ ccmeter install
 ccmeter report
 ```
 
-Post your `ccmeter report` output in a GitHub issue or discussion. Include your tier — the numbers mean different things on Pro vs Max 5x vs Max 20x.
+post your `ccmeter report` output in a [GitHub discussion](https://github.com/iteebz/ccmeter/discussions). include your tier — the numbers mean different things on pro vs max 5x vs max 20x vs team.
 
-Clean data comes from sessions where you're only using Claude Code (not claude.ai simultaneously).
+cleanest data comes from sessions where you're only using claude code (not claude.ai simultaneously).
 
-## Contribute code
+## contribute code
 
 ```bash
 git clone https://github.com/iteebz/ccmeter
@@ -23,23 +23,23 @@ cd ccmeter
 just install
 ```
 
-`just format` before committing. `just lint` to check.
+`just ci` runs lint + typecheck + tests. `just format` before committing.
 
-### What we need
+### what we need
 
-- **More tiers**: ccmeter has only been tested on Max 20x. Pro and Max 5x users running it would immediately tell us how limits scale across plans.
-- **Windows support**: auth.py needs a Windows Credential Manager backend.
-- **Aggregation**: a way for users to submit anonymized calibration data (tier + model + bucket + tokens_per_pct) to a public dataset. No PII, no conversation content, no tokens. Just the numbers.
-- **Better calibration math**: confidence intervals, outlier detection, weighted averages for mixed-model windows.
-- **Visualization**: plots of tokens_per_pct over time per bucket. If the number drops, the cap shrank.
+- **more tiers** — ccmeter has only been tested on max 20x. pro, max 5x, and team users would immediately tell us how limits scale across plans.
+- **windows support** — auth.py needs a Windows Credential Manager backend.
+- **better calibration** — confidence intervals, outlier detection, weighted averages for mixed-model windows.
+- **visualization** — budget over time per bucket. if the number drops, the cap shrank.
 
-### Adding a migration
+### adding a migration
 
-Schema changes go in `ccmeter/migrations/`. Create `NNN_description.py` with an `up(conn)` function. Never modify a shipped migration.
+schema changes go in `ccmeter/migrations/`. create `NNN_description.py` with an `up(conn)` function. never modify a shipped migration.
 
-### Style
+### style
 
 - fncli for CLI, not click/argparse
+- pyright strict
 - stdlib over external deps
 - print() for output
-- Keep it simple. This is 400 lines of python. Let's keep it close to that.
+- all display through `display.py`
