@@ -44,7 +44,9 @@ def fetch_usage(creds: Credentials) -> dict[str, Any] | None:
         return None
 
 
-def record_samples(data: dict[str, Any], last_seen: dict[str, float], conn: sqlite3.Connection, tier: str | None = None) -> dict[str, float]:
+def record_samples(
+    data: dict[str, Any], last_seen: dict[str, float], conn: sqlite3.Connection, tier: str | None = None
+) -> dict[str, float]:
     """Write rows for any bucket that changed. Returns updated last_seen."""
     for key, value in data.items():
         if not isinstance(value, dict):

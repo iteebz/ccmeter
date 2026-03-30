@@ -43,34 +43,57 @@ class ScanResult:
 
 def _token_to_dict(e: TokenEvent) -> dict[str, Any]:
     return {
-        "ts": e.ts, "in": e.input_tokens, "out": e.output_tokens,
-        "cr": e.cache_read, "cc": e.cache_create,
-        "m": e.model, "s": e.session_id, "v": e.cc_version,
+        "ts": e.ts,
+        "in": e.input_tokens,
+        "out": e.output_tokens,
+        "cr": e.cache_read,
+        "cc": e.cache_create,
+        "m": e.model,
+        "s": e.session_id,
+        "v": e.cc_version,
     }
 
 
 def _dict_to_token(d: dict[str, Any]) -> TokenEvent:
     return TokenEvent(
-        ts=d["ts"], input_tokens=d["in"], output_tokens=d["out"],
-        cache_read=d["cr"], cache_create=d["cc"],
-        model=d["m"], session_id=d["s"], cc_version=d["v"],
+        ts=d["ts"],
+        input_tokens=d["in"],
+        output_tokens=d["out"],
+        cache_read=d["cr"],
+        cache_create=d["cc"],
+        model=d["m"],
+        session_id=d["s"],
+        cc_version=d["v"],
     )
 
 
 def _activity_to_dict(e: ActivityEvent) -> dict[str, Any]:
     return {
-        "ts": e.ts, "tc": e.tool_calls, "r": e.reads, "w": e.writes,
-        "b": e.bash, "la": e.lines_added, "lr": e.lines_removed,
-        "tn": e.tool_name, "p": e.prompts, "t": e.turns,
+        "ts": e.ts,
+        "tc": e.tool_calls,
+        "r": e.reads,
+        "w": e.writes,
+        "b": e.bash,
+        "la": e.lines_added,
+        "lr": e.lines_removed,
+        "tn": e.tool_name,
+        "p": e.prompts,
+        "t": e.turns,
     }
 
 
 def _dict_to_activity(d: dict[str, Any]) -> ActivityEvent:
     return ActivityEvent(
-        ts=d["ts"], tool_calls=d.get("tc", 0), reads=d.get("r", 0),
-        writes=d.get("w", 0), bash=d.get("b", 0),
-        lines_added=d.get("la", 0), lines_removed=d.get("lr", 0),
-        tool_name=d.get("tn", ""), prompts=d.get("p", 0), turns=d.get("t", 0),
+        ts=d["ts"],
+        tool_calls=d.get("tc", 0),
+        reads=d.get("r", 0),
+        writes=d.get("w", 0),
+        bash=d.get("b", 0),
+        lines_added=d.get("la", 0),
+        lines_removed=d.get("lr", 0),
+        tool_name=d.get("tn", ""),
+        prompts=d.get("p", 0),
+        turns=d.get("t", 0),
     )
 
 
@@ -104,11 +127,16 @@ def scan(days: int = 30) -> ScanResult:
             events, activity = cached[2], cached[3]
         else:
             events, activity = _scan_file(jsonl, cutoff)
-            new_cache.append((
-                key, st.st_mtime, st.st_size, CACHE_VERSION,
-                json.dumps([_token_to_dict(e) for e in events]),
-                json.dumps([_activity_to_dict(a) for a in activity]),
-            ))
+            new_cache.append(
+                (
+                    key,
+                    st.st_mtime,
+                    st.st_size,
+                    CACHE_VERSION,
+                    json.dumps([_token_to_dict(e) for e in events]),
+                    json.dumps([_activity_to_dict(a) for a in activity]),
+                )
+            )
 
         for e in events:
             if e.ts >= cutoff:
@@ -142,9 +170,7 @@ def scan(days: int = 30) -> ScanResult:
 def _load_cache(conn: sqlite3.Connection) -> dict[str, tuple[float, int, list[TokenEvent], list[ActivityEvent]]]:
     """Load scan cache into memory. Returns {path: (mtime, size, events, activity)}."""
     # Invalidate if cache version changed
-    stale = conn.execute(
-        "SELECT COUNT(*) FROM scan_cache WHERE version != ?", (CACHE_VERSION,)
-    ).fetchone()[0]
+    stale = conn.execute("SELECT COUNT(*) FROM scan_cache WHERE version != ?", (CACHE_VERSION,)).fetchone()[0]
     if stale:
         conn.execute("DELETE FROM scan_cache")
         conn.commit()

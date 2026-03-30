@@ -43,8 +43,7 @@ def extract_activity(d: dict[str, Any], msg_type: str, msg: dict[str, Any]) -> A
             is_prompt = bool(content.strip())
         else:
             is_prompt = any(
-                isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip()
-                for b in content
+                isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip() for b in content
             )
         if is_prompt:
             ev.prompts = 1
@@ -106,8 +105,13 @@ def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> dict[st
         if e.tool_name:
             tools[e.tool_name] += 1
     return {
-        "prompts": prompts, "turns": turns, "tool_calls": tool_calls,
-        "reads": reads, "writes": writes, "bash": bash,
-        "lines_added": lines_added, "lines_removed": lines_removed,
+        "prompts": prompts,
+        "turns": turns,
+        "tool_calls": tool_calls,
+        "reads": reads,
+        "writes": writes,
+        "bash": bash,
+        "lines_added": lines_added,
+        "lines_removed": lines_removed,
         "tools": dict(tools),
     }

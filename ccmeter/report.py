@@ -2,7 +2,6 @@
 
 import json
 import sqlite3
-import sys
 from collections import defaultdict
 from typing import Any
 
@@ -10,6 +9,7 @@ from ccmeter import __version__
 from ccmeter.activity import ActivityEvent, activity_in_window
 from ccmeter.auth import get_credentials
 from ccmeter.db import connect
+from ccmeter.display import BOLD, CYAN, DIM, GREEN, PINK, PURPLE, RED, WHITE, YELLOW, c, hr, human, pl
 from ccmeter.scan import scan
 
 # API pricing per MTok (USD). Used to compute cost-equivalent metrics.
@@ -34,16 +34,16 @@ def _pricing_for(model: str) -> dict[str, float]:
 def _cost_usd(tokens: dict[str, int], model: str) -> float:
     """Compute API-equivalent cost in USD for a token breakdown."""
     rates = _pricing_for(model)
-    return sum(tokens.get(k, 0) * rates.get(k, 0) / 1_000_000 for k in ("input", "output", "cache_read", "cache_create"))
-
-
-def _pl(n: int, word: str) -> str:
-    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+    return sum(
+        tokens.get(k, 0) * rates.get(k, 0) / 1_000_000 for k in ("input", "output", "cache_read", "cache_create")
+    )
 
 
 def tokens_in_window(events: list[Any], t0: str, t1: str) -> dict[str, dict[str, int]]:
     """Sum token counts per model for events between two timestamps."""
-    by_model = defaultdict(lambda: {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0, "count": 0})
+    by_model: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0, "count": 0}
+    )
     for e in events:
         if t0 <= e.ts <= t1:
             m = e.model or "unknown"
@@ -55,7 +55,12 @@ def tokens_in_window(events: list[Any], t0: str, t1: str) -> dict[str, dict[str,
     return dict(by_model)
 
 
-def calibrate_bucket(bucket: str, events: list[Any], conn: sqlite3.Connection, activity_events: list[ActivityEvent] | None = None) -> list[dict[str, Any]]:
+def calibrate_bucket(
+    bucket: str,
+    events: list[Any],
+    conn: sqlite3.Connection,
+    activity_events: list[ActivityEvent] | None = None,
+) -> list[dict[str, Any]]:
     """Find utilization ticks and calculate tokens per percent per model."""
     rows = conn.execute(
         """
@@ -86,12 +91,14 @@ def calibrate_bucket(bucket: str, events: list[Any], conn: sqlite3.Connection, a
             total = tokens["input"] + tokens["output"] + tokens["cache_read"] + tokens["cache_create"]
             tpp = {k: int(v / delta) for k, v in tokens.items() if k != "count"}
             cost = _cost_usd(tpp, model)
+            cache_total = tokens["cache_read"] + tokens["cache_create"]
             models[model] = {
                 "tokens": dict(tokens),
                 "tokens_per_pct": tpp,
                 "total_per_pct": int(total / delta),
                 "cost_per_pct": cost,
                 "message_count": tokens["count"],
+                "cache_ratio": cache_total / total if total else 0.0,
             }
 
         activity = None
@@ -155,13 +162,16 @@ def run_report(days: int = 30, json_output: bool = False):
         if not cals:
             continue
 
-        model_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"ticks": 0, "total_per_pct": [], "cost_per_pct": []})
+        model_agg: dict[str, dict[str, Any]] = defaultdict(
+            lambda: {"ticks": 0, "total_per_pct": [], "cost_per_pct": [], "cache_ratio": []}
+        )
         activity_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"ticks": 0, "values": []})
         for cal in cals:
             for model, data in cal["models"].items():
                 model_agg[model]["ticks"] += 1
                 model_agg[model]["total_per_pct"].append(data["total_per_pct"])
                 model_agg[model]["cost_per_pct"].append(data["cost_per_pct"])
+                model_agg[model]["cache_ratio"].append(data["cache_ratio"])
                 for k in ("input", "output", "cache_read", "cache_create"):
                     model_agg[model].setdefault(f"{k}_per_pct", []).append(data["tokens_per_pct"][k])
             if cal.get("activity"):
@@ -178,6 +188,7 @@ def run_report(days: int = 30, json_output: bool = False):
                 "ticks": n,
                 "avg_total_per_pct": int(sum(agg["total_per_pct"]) / n),
                 "avg_cost_per_pct": sum(agg["cost_per_pct"]) / n,
+                "avg_cache_ratio": sum(agg["cache_ratio"]) / n,
                 "avg_per_pct": {
                     k: int(sum(agg[f"{k}_per_pct"]) / n) for k in ("input", "output", "cache_read", "cache_create")
                 },
@@ -189,7 +200,7 @@ def run_report(days: int = 30, json_output: bool = False):
             if n:
                 activity_summary[k] = round(sum(agg["values"]) / n, 1)
 
-        mixed_count = sum(1 for c in cals if c["mixed"])
+        mixed_count = sum(1 for cc in cals if cc["mixed"])
         report_data["buckets"][bucket] = {
             "ticks": len(cals),
             "mixed_ticks": mixed_count,
@@ -206,74 +217,76 @@ def run_report(days: int = 30, json_output: bool = False):
     _print_report(report_data)
 
 
-_DIM = "\033[2m"
-_BOLD = "\033[1m"
-_CYAN = "\033[36m"
-_RED = "\033[31m"
-_GREEN = "\033[32m"
-_YELLOW = "\033[33m"
-_WHITE = "\033[37m"
-_PURPLE = "\033[38;2;160;130;220m"
-_PINK = "\033[38;2;210;140;190m"
-_RESET = "\033[0m"
-_RULE = "\033[38;2;60;60;80m"
-
-
-def _c(code: str, text: str) -> str:
-    return f"{code}{text}{_RESET}" if sys.stdout.isatty() else str(text)
-
-
-def _hr(width: int = 50) -> str:
-    return _c(_RULE, "─" * width)
-
-
 def _print_report(data: dict[str, Any]) -> None:
     print()
-    print(f"  {_c(_BOLD + _WHITE, 'ccmeter')} {_c(_DIM, f'v{data.get("version", "?")}')}    {_c(_PINK, data['tier'])} {_c(_DIM, data['rate_limit_tier'])}")
-    print(f"  {_c(_DIM, f'{data["sessions"]:,} sessions  ·  {data["token_events"]:,} events  ·  {data["usage_samples"]} samples  ·  {data["lookback_days"]}d window')}")
+    print(
+        f"  {c(BOLD + WHITE, 'ccmeter')} {c(DIM, f'v{data.get("version", "?")}')}    {c(PINK, data['tier'])} {c(DIM, data['rate_limit_tier'])}"
+    )
+    print(
+        f"  {c(DIM, f'{data["sessions"]:,} sessions  ·  {data["token_events"]:,} events  ·  {data["usage_samples"]} samples  ·  {data["lookback_days"]}d')}"
+    )
     print()
 
     if not data["buckets"]:
-        print(f"  {_c(_YELLOW, 'no calibration data yet')}")
-        print(f"  {_c(_DIM, 'need usage ticks that overlap with JSONL session data.')}")
-        print(f"  {_c(_DIM, 'keep ccmeter poll running while you use Claude Code.')}")
+        print(f"  {c(YELLOW, 'no calibration data yet')}")
+        print(f"  {c(DIM, 'need usage ticks that overlap with JSONL session data.')}")
+        print(f"  {c(DIM, 'keep ccmeter poll running while you use Claude Code.')}")
         return
 
     for bucket, bdata in data["buckets"].items():
-        print(f"  {_hr()}")
-        print(f"  {_c(_BOLD, bucket)} {_c(_DIM, _pl(bdata['ticks'], 'tick'))}")
-        print(f"  {_hr()}")
+        print(f"  {hr()}")
+        label = bucket.replace("_", " ")
+        print(f"  {c(BOLD + WHITE, label)}  {c(DIM, pl(bdata['ticks'], 'tick'))}")
         if bdata["mixed_ticks"]:
-            print(f"  {_c(_YELLOW, f'⚠ {_pl(bdata["mixed_ticks"], "tick")} mixed models')}")
+            print(f"  {c(YELLOW, f'⚠ {pl(bdata["mixed_ticks"], "tick")} had mixed models — estimates less reliable')}")
+        print()
+
         for model, mdata in sorted(bdata["models"].items()):
             tpp = mdata["avg_per_pct"]
             act = bdata.get("activity_per_pct", {})
-            print(f"  {_c(_CYAN, model)}")
-            print()
-            print(f"    {_c(_DIM, '1%  ≈')}  {_c(_BOLD + _WHITE, f'{mdata["avg_total_per_pct"]:,}')} {_c(_DIM, 'tokens')}")
-            print(
-                f"           "
-                f"{_c(_PURPLE, f'{tpp["input"]:,}')} {_c(_DIM, 'in')}  "
-                f"{_c(_PURPLE, f'{tpp["output"]:,}')} {_c(_DIM, 'out')}  "
-                f"{_c(_PURPLE, f'{tpp["cache_read"]:,}')} {_c(_DIM, 'cache_r')}  "
-                f"{_c(_PURPLE, f'{tpp["cache_create"]:,}')} {_c(_DIM, 'cache_w')}"
-            )
+            cache_pct = int(mdata["avg_cache_ratio"] * 100)
+            cost = mdata["avg_cost_per_pct"]
+
+            # model name
+            print(f"  {c(CYAN, model)}")
+
+            # headline: cost per 1%
+            cost_100 = cost * 100
+            print(f"    {c(DIM, '1%  ≈')}  {c(BOLD + WHITE, f'${cost:.3f}')} {c(DIM, 'API-equivalent')}")
+            print(f"    {c(DIM, '100% ≈')}  {c(DIM, f'${cost_100:.2f}')}")
+
+            # token breakdown
+            parts = [
+                f"{c(PURPLE, human(tpp['input']))} {c(DIM, 'in')}",
+                f"{c(PURPLE, human(tpp['output']))} {c(DIM, 'out')}",
+                f"{c(PURPLE, human(tpp['cache_read']))} {c(DIM, 'cache↓')}",
+                f"{c(PURPLE, human(tpp['cache_create']))} {c(DIM, 'cache↑')}",
+            ]
+            print(f"           {'  '.join(parts)}")
+
+            # cache ratio
+            if cache_pct > 0:
+                print(
+                    f"           {c(DIM, f'{cache_pct}% cached')}  {c(DIM, f'({human(mdata["avg_total_per_pct"])} raw tokens)')}"
+                )
+
+            # activity
             if act and (act.get("tool_calls") or act.get("lines_added")):
-                parts = []
+                aparts = []
                 if act.get("tool_calls"):
-                    parts.append(f"{_c(_WHITE, f'{act["tool_calls"]:.0f}')} {_c(_DIM, 'tool calls')}")
+                    aparts.append(f"{c(WHITE, f'{act["tool_calls"]:.0f}')} {c(DIM, 'tools')}")
                 if act.get("reads"):
-                    parts.append(f"{_c(_WHITE, f'{act["reads"]:.0f}')} {_c(_DIM, 'reads')}")
+                    aparts.append(f"{c(WHITE, f'{act["reads"]:.0f}')} {c(DIM, 'reads')}")
                 if act.get("writes"):
-                    parts.append(f"{_c(_WHITE, f'{act["writes"]:.0f}')} {_c(_DIM, 'edits')}")
+                    aparts.append(f"{c(WHITE, f'{act["writes"]:.0f}')} {c(DIM, 'edits')}")
                 if act.get("bash"):
-                    parts.append(f"{_c(_WHITE, f'{act["bash"]:.0f}')} {_c(_DIM, 'bash')}")
-                print(f"           {'  ·  '.join(parts)}")
+                    aparts.append(f"{c(WHITE, f'{act["bash"]:.0f}')} {c(DIM, 'bash')}")
+                print(f"           {'  ·  '.join(aparts)}")
                 added = act.get("lines_added", 0)
                 removed = act.get("lines_removed", 0)
                 if added or removed:
-                    print(f"           {_c(_GREEN, f'+{added:.0f}')} / {_c(_RED, f'-{removed:.0f}')} {_c(_DIM, 'lines')}")
+                    print(f"           {c(GREEN, f'+{added:.0f}')} / {c(RED, f'-{removed:.0f}')} {c(DIM, 'lines')}")
             print()
 
-    print(f"  {_c(_DIM, '⚠  claude.ai + claude code simultaneously = inflated counts')}")
-    print(f"  {_c(_DIM, '   api tracks combined usage; we only see local logs')}")
+    print(f"  {c(DIM, '⚠  claude.ai + claude code simultaneously = inflated counts')}")
+    print(f"  {c(DIM, '   api tracks combined usage; we only see local logs')}")

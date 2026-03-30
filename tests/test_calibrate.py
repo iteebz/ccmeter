@@ -9,8 +9,12 @@ from ccmeter.scan import TokenEvent
 
 
 def _make_event(
-    ts: str, model: str = "claude-opus-4-6", input_tokens: int = 100,
-    output_tokens: int = 50, cache_read: int = 1000, cache_create: int = 200,
+    ts: str,
+    model: str = "claude-opus-4-6",
+    input_tokens: int = 100,
+    output_tokens: int = 50,
+    cache_read: int = 1000,
+    cache_create: int = 200,
 ) -> TokenEvent:
     return TokenEvent(
         ts=ts,

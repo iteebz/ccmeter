@@ -1,14 +1,52 @@
-"""Animated wave progress bar."""
+"""Display primitives: colors, progress, formatting."""
 
 import math
 import sys
 import time
 
+# ANSI codes
+DIM = "\033[2m"
+BOLD = "\033[1m"
+CYAN = "\033[36m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+WHITE = "\033[37m"
+PURPLE = "\033[38;2;160;130;220m"
+PINK = "\033[38;2;210;140;190m"
 RESET = "\033[0m"
-WIDTH = 30
+RULE = "\033[38;2;60;60;80m"
 
+# Wave bar
+WIDTH = 30
 _GRAD_START = (140, 120, 220)
 _GRAD_END = (210, 140, 190)
+
+
+def c(code: str, text: str | int | float) -> str:
+    """Colorize text, stripping ANSI if not a TTY."""
+    return f"{code}{text}{RESET}" if sys.stdout.isatty() else str(text)
+
+
+def hr(width: int = 50) -> str:
+    return c(RULE, "─" * width)
+
+
+def pl(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def human(n: int | float) -> str:
+    """Format large numbers: 5678315 → 5.7M, 57080 → 57k, 86 → 86."""
+    if abs(n) >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if abs(n) >= 10_000:
+        return f"{n / 1_000:.0f}k"
+    if abs(n) >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    if isinstance(n, float):
+        return f"{n:.1f}"
+    return str(n)
 
 
 def _color(i: int, width: int) -> str:
