@@ -1,91 +1,93 @@
 # ccmeter
 
-Measure what Anthropic won't tell you: what your Claude subscription limits actually mean in tokens.
+measure your actual claude code usage limits instead of guessing.
 
-## Why
+## why
 
-Anthropic charges $20-$200/month for Claude but won't say what the limits actually are. The API reports utilization as a percentage — but a percentage of *what*? Nobody knows.
+anthropic shows you a percentage bar. 21% used. but 21% of *what*? they've never said.
 
-Twice in four months, Anthropic announced temporary usage boosts, then silently tightened baseline limits after. When users complained, the response was "contrast effect." See [docs/evidence.md](docs/evidence.md) for the receipts.
+twice in four months, limits changed during or after promotions. both times the community noticed. both times the explanation was "contrast effect." without numbers, you can't tell the difference between "i'm using more" and "they gave me less."
 
-Without hard numbers, users can't tell the difference between "I'm using more" and "they gave me less." ccmeter fixes that. If limits shrink, you'll see it — tokens-per-percent goes down, cost-per-percent goes down, and there's no way to hand-wave calibrated data.
+ccmeter gives you the number. track it over time. if it drops, the cap shrank. see [docs/evidence.md](docs/evidence.md) for the receipts.
 
-One person's data is a sample. Hundreds of people's data is leverage.
+## what it measures
 
-## How it works
+from a max 20x subscriber running opus:
 
-1. **Poll**: records utilization percentages from Anthropic's OAuth usage API every 2 minutes per bucket (`five_hour`, `seven_day`, etc.)
-2. **Scan**: reads per-message token counts from Claude Code's local JSONL session logs
-3. **Calibrate**: when utilization ticks from 15% to 16% and you used N tokens in that window — 1% = N tokens, 1% = $X at API rates
+```
+5h window:  $363 budget  = 20x × $18 pro base
+7d window:  $1,900 budget  = 20x × $95 pro base
+```
 
-Track those numbers over time. If tokens-per-percent drops, the cap shrank. Cost-per-percent gives you the dollar value of what each plan actually buys — comparable across users regardless of cache hit ratio.
+the dollar amount isn't about sub vs api. it's the only unit that makes different token types comparable — cache reads are 10x cheaper than input tokens, so raw totals are meaningless. cost-weighting normalizes everything into one number you can track.
 
-## Install
+every report stores the budget. next run shows the delta. if your budget drops 5% overnight, you see it in red. across enough users, a simultaneous drop is undeniable.
+
+## how it works
+
+1. **poll** — records utilization from anthropic's usage API every 2 minutes
+2. **scan** — reads per-message token counts from claude code's local JSONL logs
+3. **calibrate** — when utilization ticks from 15% to 16%, it knows what tokens were used in that window. cost-weight them. that's your budget per percent.
+
+## install
 
 ```bash
 pip install ccmeter
 ```
 
-Or clone and run directly:
+or clone and run directly:
 
 ```bash
 git clone https://github.com/iteebz/ccmeter && cd ccmeter && uv sync
 ```
 
-Requires Python 3.12+, Claude Code installed and signed in. macOS and Linux. Zero dependencies beyond [fncli](https://pypi.org/project/fncli/).
+requires python 3.12+, claude code installed and signed in. macos and linux. zero dependencies beyond [fncli](https://pypi.org/project/fncli/).
 
-## Usage
+## usage
 
 ```bash
-# Install as background daemon (survives restarts)
-ccmeter install
-
-# Or run in foreground
-ccmeter poll
-
-# What does 1% actually cost?
-ccmeter report
-
-# Structured output for sharing
-ccmeter report --json
-
-# Raw usage tick history
-ccmeter history
-
-# Collection health
-ccmeter status
-
-# Remove daemon
-ccmeter uninstall
+ccmeter install          # background daemon, survives restarts
+ccmeter report           # see your budget
+ccmeter report --json    # structured output for sharing
+ccmeter history          # raw usage tick history
+ccmeter status           # collection health
+ccmeter uninstall        # remove daemon
 ```
 
-## What it collects
+needs a few days of data collection before calibration kicks in. install it, let it run, check back.
 
-**From Anthropic's API** (polled every 2 min, recorded on change):
-- Utilization percentage per bucket
-- Reset timestamps
-- Your subscription tier (detected automatically from credentials)
+## claude code only
 
-**From Claude Code's local JSONL files** (scanned on `report`):
-- Per-message token counts: input, output, cache_read, cache_create
-- Timestamps, model, Claude Code version, session ID
+ccmeter reads token data from local session logs that only claude code produces. if you use claude.ai or cowork at the same time, token counts get inflated because the API tracks combined usage but we only see claude code's logs. for cleanest data, use claude code as your primary surface.
 
-**Everything stays local** in `~/.ccmeter/meter.db`. Your OAuth token is only sent to Anthropic's own API — the same call Claude Code already makes.
+## what it collects
 
-## Known confounds
+**from anthropic's API** (polled every 2 min, recorded on change):
+- utilization percentage per bucket (`five_hour`, `seven_day`, etc.)
+- reset timestamps
+- subscription tier (detected from credentials)
 
-- **Multi-surface usage**: claude.ai, Claude Code, and Cowork share limits but only Claude Code has local token logs. If you use multiple surfaces simultaneously, token counts will be inflated relative to the utilization tick.
-- **1% granularity**: The API reports whole percentages only. More samples over longer periods = better accuracy.
-- **Bucket overlap**: Some buckets may share underlying quotas in ways the API doesn't surface.
+**from claude code's local JSONL files** (scanned on `report`):
+- per-message token counts: input, output, cache_read, cache_create
+- model, timestamps, session id
+- tool calls, reads, edits, bash commands, lines changed
 
-## Help
+**everything stays local** in `~/.ccmeter/meter.db`. your oauth token only goes to anthropic's own API — the same call claude code already makes.
 
-The more users collecting data across different tiers (Pro, Max 5x, Max 20x) and models (Sonnet, Opus), the faster we can detect when limits change and map what every plan actually gets you.
+## known confounds
 
-**Easiest way to help:** install it, let the daemon run, share your `ccmeter report` output.
+- **multi-surface usage** — claude.ai, cowork, and claude code share limits but only claude code has local token logs. simultaneous use inflates counts.
+- **1% granularity** — the API reports whole percentages only. more samples over longer periods = better accuracy.
+- **pro base is derived** — the pro base number is your budget divided by your tier multiplier. it's a prediction, not a measurement. a pro user running ccmeter would confirm it.
 
-**If you want to contribute code:** see [CONTRIBUTING.md](CONTRIBUTING.md).
+## help
 
-## License
+the more people running this across tiers (pro, max 5x, max 20x, team) and models (sonnet, opus, haiku), the harder it gets to change limits without anyone noticing.
+
+install it. let the daemon run. share your `ccmeter report` output.
+
+if you want to contribute code: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## license
 
 MIT
