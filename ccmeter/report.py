@@ -7,6 +7,30 @@ from ccmeter.auth import get_credentials
 from ccmeter.db import connect
 from ccmeter.scan import scan
 
+# API pricing per MTok (USD). Used to compute cost-equivalent metrics.
+# Source: anthropic.com/pricing as of 2025-03.
+# Models not listed here fall back to the most expensive tier.
+PRICING = {
+    "claude-opus-4-6": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_create": 6.25},
+    "claude-sonnet-4-6": {"input": 1.50, "output": 7.50, "cache_read": 0.15, "cache_create": 1.875},
+    "claude-haiku-4-5": {"input": 0.40, "output": 2.00, "cache_read": 0.04, "cache_create": 0.50},
+}
+
+FALLBACK_PRICING = PRICING["claude-opus-4-6"]
+
+
+def _pricing_for(model: str) -> dict[str, float]:
+    for prefix, rates in PRICING.items():
+        if model.startswith(prefix):
+            return rates
+    return FALLBACK_PRICING
+
+
+def _cost_usd(tokens: dict, model: str) -> float:
+    """Compute API-equivalent cost in USD for a token breakdown."""
+    rates = _pricing_for(model)
+    return sum(tokens.get(k, 0) * rates.get(k, 0) / 1_000_000 for k in ("input", "output", "cache_read", "cache_create"))
+
 
 def _pl(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
@@ -55,10 +79,13 @@ def calibrate_bucket(bucket: str, events, conn) -> list[dict]:
         models = {}
         for model, tokens in by_model.items():
             total = tokens["input"] + tokens["output"] + tokens["cache_read"] + tokens["cache_create"]
+            tpp = {k: int(v / delta) for k, v in tokens.items() if k != "count"}
+            cost = _cost_usd(tpp, model)
             models[model] = {
                 "tokens": dict(tokens),
-                "tokens_per_pct": {k: int(v / delta) for k, v in tokens.items() if k != "count"},
+                "tokens_per_pct": tpp,
                 "total_per_pct": int(total / delta),
+                "cost_per_pct": cost,
                 "message_count": tokens["count"],
             }
 
@@ -117,11 +144,12 @@ def run_report(days: int = 30, json_output: bool = False):
         if not cals:
             continue
 
-        model_agg = defaultdict(lambda: {"ticks": 0, "total_per_pct": []})
+        model_agg = defaultdict(lambda: {"ticks": 0, "total_per_pct": [], "cost_per_pct": []})
         for cal in cals:
             for model, data in cal["models"].items():
                 model_agg[model]["ticks"] += 1
                 model_agg[model]["total_per_pct"].append(data["total_per_pct"])
+                model_agg[model]["cost_per_pct"].append(data["cost_per_pct"])
                 for k in ("input", "output", "cache_read", "cache_create"):
                     model_agg[model].setdefault(f"{k}_per_pct", []).append(data["tokens_per_pct"][k])
 
@@ -131,6 +159,7 @@ def run_report(days: int = 30, json_output: bool = False):
             model_summary[model] = {
                 "ticks": n,
                 "avg_total_per_pct": int(sum(agg["total_per_pct"]) / n),
+                "avg_cost_per_pct": sum(agg["cost_per_pct"]) / n,
                 "avg_per_pct": {
                     k: int(sum(agg[f"{k}_per_pct"]) / n) for k in ("input", "output", "cache_read", "cache_create")
                 },
@@ -174,8 +203,9 @@ def _print_report(data: dict):
             print(f"  ⚠ {_pl(bdata['mixed_ticks'], 'tick')} had mixed models — calibration is approximate")
         for model, mdata in sorted(bdata["models"].items()):
             tpp = mdata["avg_per_pct"]
+            cost = mdata["avg_cost_per_pct"]
             print(f"  {model} ({_pl(mdata['ticks'], 'tick')}):")
-            print(f"    1% ≈ {mdata['avg_total_per_pct']:,} tokens")
+            print(f"    1% ≈ {mdata['avg_total_per_pct']:,} tokens (${cost:.2f} at API rates)")
             print(
                 f"         {tpp['input']:,} input / {tpp['output']:,} output / {tpp['cache_read']:,} cache_read / {tpp['cache_create']:,} cache_create"
             )
