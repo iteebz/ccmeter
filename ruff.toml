@@ -1,0 +1,40 @@
+line-length = 120
+target-version = "py312"
+
+[format]
+quote-style = "double"
+indent-style = "space"
+
+[lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "RET",    # flake8-return
+    "S",      # flake8-bandit (security)
+    "PTH",    # flake8-use-pathlib
+    "PERF",   # perflint
+    "RUF",    # ruff-specific
+    "TID",    # tidy imports
+    "PIE",    # misc lints
+    "T20",    # flake8-print
+    "FLY",    # flynt (f-strings)
+    "FURB",   # refurb (modern python)
+    "PLC",    # pylint conventions
+]
+ignore = [
+    "SIM108",   # ternary not always clearer
+    "E501",     # line length (formatter handles)
+    "S104",     # binding to all interfaces
+    "S603",     # subprocess calls intentional
+    "S607",     # partial executable path
+]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105"]

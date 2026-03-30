@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ccmeter"
+version = "0.0.1"
+description = "Reverse-engineer Anthropic's opaque Claude subscription limits into hard numbers"
+authors = [{name = "Tyson Chan", email = "tyson.chan@proton.me"}]
+keywords = ["claude", "anthropic", "usage", "limits", "transparency", "metering"]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Monitoring",
+]
+
+dependencies = [
+    "httpx>=0.28.0",
+    "fncli",
+]
+
+[project.scripts]
+ccmeter = "ccmeter.cli:main"
+
+[project.urls]
+Repository = "https://github.com/iteebz/ccmeter"
+Issues = "https://github.com/iteebz/ccmeter/issues"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.13.0",
+    "pytest>=8.4.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["ccmeter"]
