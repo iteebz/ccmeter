@@ -224,7 +224,7 @@ def _prune_cache(conn: sqlite3.Connection, active_paths: set[str]) -> None:
 
 
 
-def _save_cache(conn: sqlite3.Connection, entries: list[tuple[str, float, int, int, str, str]]) -> None:
+def _save_cache(conn: sqlite3.Connection, entries: list[tuple[str, float, int, int, bytes, bytes]]) -> None:
     """Write new/updated cache entries."""
     conn.executemany(
         "INSERT OR REPLACE INTO scan_cache (path, mtime, size, version, events, activity) VALUES (?, ?, ?, ?, ?, ?)",
