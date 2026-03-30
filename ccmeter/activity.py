@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 READ_TOOLS = {"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch"}
 WRITE_TOOLS = {"Edit", "MultiEdit", "Write"}
@@ -82,7 +82,19 @@ def extract_activity(d: dict[str, Any], msg_type: str, msg: dict[str, Any]) -> A
     return ev if hit else None
 
 
-def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> dict[str, Any]:
+class ActivityWindow(TypedDict):
+    prompts: int
+    turns: int
+    tool_calls: int
+    reads: int
+    writes: int
+    bash: int
+    lines_added: int
+    lines_removed: int
+    tools: dict[str, int]
+
+
+def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> ActivityWindow:
     """Sum activity metrics for events between two timestamps."""
     import bisect
 

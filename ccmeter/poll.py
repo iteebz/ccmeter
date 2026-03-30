@@ -14,12 +14,14 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from ccmeter.auth import Credentials, get_credentials
 from ccmeter.db import connect
 
 PIDFILE = Path.home() / ".ccmeter" / "poll.pid"
+LOG_DIR = Path.home() / ".ccmeter"
+MAX_LOG_BYTES = 512 * 1024  # 512KB
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 BETA_HEADER = "oauth-2025-04-20"
@@ -130,7 +132,7 @@ def _next_delay(result: PollResult, interval: int, backoff: int) -> int:
     return min(backoff * 2, 300)
 
 
-def _acquire_lock() -> Any:
+def _acquire_lock() -> IO[str]:
     """Acquire exclusive pidfile lock. Returns file handle or exits."""
     PIDFILE.parent.mkdir(parents=True, exist_ok=True)
     f = PIDFILE.open("w")
@@ -143,10 +145,6 @@ def _acquire_lock() -> Any:
     f.write(str(os.getpid()))
     f.flush()
     return f
-
-
-LOG_DIR = Path.home() / ".ccmeter"
-MAX_LOG_BYTES = 512 * 1024  # 512KB
 
 
 def _rotate_logs() -> None:

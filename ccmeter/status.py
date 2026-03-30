@@ -3,7 +3,7 @@
 import os
 
 from ccmeter.db import DB_PATH, connect
-from ccmeter.display import BOLD, CYAN, DIM, GREEN, RED, WHITE, YELLOW, ago, c, hr, human
+from ccmeter.display import BOLD, CYAN, DIM, GREEN, RED, WHITE, YELLOW, ago, c, hr
 
 
 def _daemon_status() -> tuple[str, str]:
@@ -23,7 +23,12 @@ def _db_size() -> str:
     """Human-readable DB file size."""
     if not DB_PATH.exists():
         return "0"
-    return human(DB_PATH.stat().st_size).replace("M", "MB").replace("k", "KB")
+    size = DB_PATH.stat().st_size
+    if size >= 1_000_000:
+        return f"{size / 1_000_000:.0f}MB"
+    if size >= 1_000:
+        return f"{size / 1_000:.0f}KB"
+    return f"{size}B"
 
 
 def show_status():
