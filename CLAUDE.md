@@ -1,6 +1,6 @@
 # ccmeter
 
-Measure what Anthropic won't tell you: what Claude subscription limits actually mean in tokens.
+Reverse-engineer Anthropic's opaque Claude subscription limits into hard numbers. Anthropic shows utilization as a percentage but won't say a percentage of what. ccmeter cross-references utilization ticks against local token logs to derive tokens-per-percent and cost-per-percent — the actual dollar value of each plan.
 
 ## Architecture
 
@@ -8,13 +8,17 @@ Measure what Anthropic won't tell you: what Claude subscription limits actually 
 ccmeter/
   auth.py    — reads OAuth creds from OS keychain (macOS Keychain, Linux libsecret)
   cli.py     — fncli entry point: poll, report, history, status, install, uninstall
-  db.py      — sqlite schema (~/.ccmeter/meter.db)
+  db.py      — sqlite connection + auto-migration (~/.ccmeter/meter.db)
+  display.py — ANSI colors, progress bar, formatting primitives (shared by all commands)
   poll.py    — usage API poller with change detection and exponential backoff
   scan.py    — JSONL scanner: reads per-message token counts from ~/.claude/projects/
-  report.py  — cross-references usage ticks against token windows to derive tokens-per-percent
+  report.py  — cross-references usage ticks against token windows to derive cost-per-percent
   history.py — display raw usage samples
-  status.py  — collection health
+  status.py  — collection health and per-bucket current state
   daemon.py  — launchd (macOS) / systemd (Linux) install/uninstall
+  export.py  — anonymized calibration data for community sharing
+  update.py  — version checking and self-update from PyPI
+  migrations/ — sqlite schema migrations (001_initial, 002_scan_cache)
 docs/
   evidence.md — sourced incidents of opaque limit changes
 ```
@@ -33,14 +37,23 @@ Zero external deps beyond `fncli`. stdlib `urllib` for HTTP.
 - JSONL assistant messages contain `.message.usage` with `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`
 - Session metadata: `~/.claude/usage-data/session-meta/<session_id>.json` (token counts in thousands)
 
+## Token weighting
+
+Raw token totals are misleading. A session that's 99% cache reads looks like millions of tokens, but cache reads are 10x cheaper than input tokens. The report leads with **cost-per-percent** (API-equivalent USD) as the headline metric — this is what Anthropic likely weights by internally. Pricing used for weighting:
+
+- Opus: $5 input, $25 output, $0.50 cache_read, $6.25 cache_create (per MTok)
+- Sonnet: $1.50 input, $7.50 output, $0.15 cache_read, $1.875 cache_create
+- Haiku: $0.40 input, $2 output, $0.04 cache_read, $0.50 cache_create
+
 ## Conventions
 
 - fncli for CLI (not click/argparse)
+- pyright strict for type checking
 - stdlib over deps
 - sqlite for local storage
 - print() for output
-- Deferred imports in CLI handlers
-- `just format` / `just lint`
+- Deferred imports in CLI handlers (fast startup)
+- All ANSI/display through `display.py` — never inline escape codes
 
 ## Development
 
@@ -51,15 +64,9 @@ uv run ccmeter poll --once # single poll to verify auth works
 uv run ccmeter report      # test report generation
 just format                # ruff format + fix
 just lint                  # ruff check
+just typecheck             # pyright strict
 just test                  # pytest
+just ci                    # lint + typecheck + test
 ```
 
 Test against real data — the tool reads from your local `~/.claude/` and OS keychain. No mocks needed for integration testing. Unit tests should mock the keychain and API calls.
-
-## Roadmap
-
-- [ ] Confidence intervals on calibration (need more data)
-- [ ] Anonymous contribution: `ccmeter export` dumps standardized JSON for community sharing
-- [ ] Community dataset repo for aggregated calibration data
-- [ ] Windows support (Windows Credential Manager)
-- [ ] PyPI publish
