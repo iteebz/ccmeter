@@ -118,6 +118,10 @@ def _print_help():
 
 
 def main():
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+
     args = sys.argv[1:]
     if not args or args == ["--help"] or args == ["-h"]:
         _print_help()

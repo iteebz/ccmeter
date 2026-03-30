@@ -23,6 +23,8 @@ def get_credentials() -> Credentials | None:
         return _macos_keychain()
     if sys.platform == "linux":
         return _linux_secret()
+    if sys.platform == "win32":
+        return _windows_credential()
     return None
 
 
@@ -65,3 +67,14 @@ def _macos_keychain() -> Credentials | None:
 
 def _linux_secret() -> Credentials | None:
     return _run_keychain(["secret-tool", "lookup", "service", "Claude Code-credentials"])
+
+
+def _windows_credential() -> Credentials | None:
+    """Read Claude Code credentials from ~/.claude/.credentials.json."""
+    from pathlib import Path
+
+    cred_file = Path.home() / ".claude" / ".credentials.json"
+    try:
+        return _parse_credentials(cred_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None

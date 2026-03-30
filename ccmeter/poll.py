@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import signal
@@ -137,7 +136,14 @@ def _acquire_lock() -> IO[str]:
     PIDFILE.parent.mkdir(parents=True, exist_ok=True)
     f = PIDFILE.open("w")
     try:
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         print("error: another ccmeter poll is already running", file=sys.stderr)
         f.close()
