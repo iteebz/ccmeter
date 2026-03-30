@@ -236,7 +236,7 @@ def scan_file(path: Path, cutoff: str) -> tuple[list[TokenEvent], list[ActivityE
     events = []
     activity = []
     try:
-        with path.open() as f:
+        with path.open(encoding="utf-8", errors="replace") as f:
             for line in f:
                 if '"usage"' not in line and '"tool_use"' not in line and '"user"' not in line:
                     continue

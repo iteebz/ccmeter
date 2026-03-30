@@ -15,7 +15,7 @@ def _daemon_status() -> tuple[str, str]:
         pid = int(pidfile.read_text().strip())
         os.kill(pid, 0)
         return f"running (pid {pid})", GREEN
-    except (ValueError, ProcessLookupError, PermissionError):
+    except (ValueError, OSError):
         return "stale pidfile", YELLOW
 
 
