@@ -12,9 +12,8 @@ from ccmeter.db import connect
 from ccmeter.display import BOLD, CYAN, DIM, GREEN, PINK, PURPLE, RED, WHITE, YELLOW, c, hr, human, pl
 from ccmeter.scan import scan
 
-# API pricing per MTok (USD). Used to compute cost-equivalent metrics.
+# API pricing per MTok (USD).
 # Source: anthropic.com/pricing as of 2026-03.
-# Models not listed here fall back to the most expensive tier.
 PRICING = {
     "claude-opus-4-6": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_create": 6.25},
     "claude-sonnet-4-6": {"input": 1.50, "output": 7.50, "cache_read": 0.15, "cache_create": 1.875},
@@ -22,6 +21,15 @@ PRICING = {
 }
 
 FALLBACK_PRICING = PRICING["claude-opus-4-6"]
+
+# Bucket display names and window descriptions
+BUCKET_LABELS: dict[str, str] = {
+    "five_hour": "5h window",
+    "seven_day": "7d window",
+    "seven_day_sonnet": "7d sonnet",
+    "seven_day_opus": "7d opus",
+    "seven_day_cowork": "7d cowork",
+}
 
 
 def _pricing_for(model: str) -> dict[str, float]:
@@ -32,11 +40,29 @@ def _pricing_for(model: str) -> dict[str, float]:
 
 
 def _cost_usd(tokens: dict[str, int], model: str) -> float:
-    """Compute API-equivalent cost in USD for a token breakdown."""
+    """Compute cost in USD for a token breakdown."""
     rates = _pricing_for(model)
     return sum(
         tokens.get(k, 0) * rates.get(k, 0) / 1_000_000 for k in ("input", "output", "cache_read", "cache_create")
     )
+
+
+def _parse_multiplier(rate_limit_tier: str) -> int:
+    """Extract tier multiplier from rate_limit_tier string. e.g. 'default_claude_max_20x' → 20."""
+    if "_max_" in rate_limit_tier and rate_limit_tier.endswith("x"):
+        try:
+            return int(rate_limit_tier.rsplit("_", maxsplit=1)[-1].rstrip("x"))
+        except ValueError:
+            pass
+    return 1
+
+
+def _tier_label(rate_limit_tier: str, multiplier: int) -> str:
+    if multiplier > 1:
+        return f"max {multiplier}x"
+    if "pro" in rate_limit_tier:
+        return "pro"
+    return rate_limit_tier
 
 
 def tokens_in_window(events: list[Any], t0: str, t1: str) -> dict[str, dict[str, int]]:
@@ -61,7 +87,7 @@ def calibrate_bucket(
     conn: sqlite3.Connection,
     activity_events: list[ActivityEvent] | None = None,
 ) -> list[dict[str, Any]]:
-    """Find utilization ticks and calculate tokens per percent per model."""
+    """Find utilization ticks and calculate cost per percent across all models."""
     rows = conn.execute(
         """
         SELECT s1.ts as t0, s2.ts as t1,
@@ -86,11 +112,14 @@ def calibrate_bucket(
         if not by_model:
             continue
 
+        # Total cost across ALL models in this tick — this is the real budget drain
+        tick_cost = 0.0
         models = {}
         for model, tokens in by_model.items():
             total = tokens["input"] + tokens["output"] + tokens["cache_read"] + tokens["cache_create"]
             tpp = {k: int(v / delta) for k, v in tokens.items() if k != "count"}
             cost = _cost_usd(tpp, model)
+            tick_cost += cost
             cache_total = tokens["cache_read"] + tokens["cache_create"]
             models[model] = {
                 "tokens": dict(tokens),
@@ -111,6 +140,7 @@ def calibrate_bucket(
                 "t1": t1,
                 "delta_pct": delta,
                 "models": models,
+                "cost_per_pct": tick_cost,  # combined across models
                 "mixed": len(models) > 1,
                 "activity": activity,
             }
@@ -126,6 +156,8 @@ def run_report(days: int = 30, json_output: bool = False):
     if creds:
         tier = creds.subscription_type or "unknown"
         rate_tier = creds.rate_limit_tier or "unknown"
+
+    multiplier = _parse_multiplier(rate_tier)
 
     result = scan(days=days)
 
@@ -147,6 +179,7 @@ def run_report(days: int = 30, json_output: bool = False):
         "version": __version__,
         "tier": tier,
         "rate_limit_tier": rate_tier,
+        "multiplier": multiplier,
         "os": result.os,
         "cc_versions": sorted(result.cc_versions),
         "models_seen": sorted(result.models),
@@ -162,14 +195,15 @@ def run_report(days: int = 30, json_output: bool = False):
         if not cals:
             continue
 
-        model_agg: dict[str, dict[str, Any]] = defaultdict(
-            lambda: {"ticks": 0, "total_per_pct": [], "cost_per_pct": [], "cache_ratio": []}
-        )
+        # Aggregate cost per percent across all ticks (combined across models)
+        costs = [cal["cost_per_pct"] for cal in cals]
+
+        # Per-model detail
+        model_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"ticks": 0, "cost_per_pct": [], "cache_ratio": []})
         activity_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"ticks": 0, "values": []})
         for cal in cals:
             for model, data in cal["models"].items():
                 model_agg[model]["ticks"] += 1
-                model_agg[model]["total_per_pct"].append(data["total_per_pct"])
                 model_agg[model]["cost_per_pct"].append(data["cost_per_pct"])
                 model_agg[model]["cache_ratio"].append(data["cache_ratio"])
                 for k in ("input", "output", "cache_read", "cache_create"):
@@ -186,7 +220,6 @@ def run_report(days: int = 30, json_output: bool = False):
             n = agg["ticks"]
             model_summary[model] = {
                 "ticks": n,
-                "avg_total_per_pct": int(sum(agg["total_per_pct"]) / n),
                 "avg_cost_per_pct": sum(agg["cost_per_pct"]) / n,
                 "avg_cache_ratio": sum(agg["cache_ratio"]) / n,
                 "avg_per_pct": {
@@ -200,10 +233,16 @@ def run_report(days: int = 30, json_output: bool = False):
             if n:
                 activity_summary[k] = round(sum(agg["values"]) / n, 1)
 
-        mixed_count = sum(1 for cc in cals if cc["mixed"])
+        avg_cost = sum(costs) / len(costs)
+        capacity = avg_cost * 100
+        base_budget = capacity / multiplier if multiplier > 1 else capacity
+
         report_data["buckets"][bucket] = {
             "ticks": len(cals),
-            "mixed_ticks": mixed_count,
+            "mixed_ticks": sum(1 for cc in cals if cc["mixed"]),
+            "avg_cost_per_pct": avg_cost,
+            "capacity": capacity,
+            "base_budget": base_budget,
             "models": model_summary,
             "activity_per_pct": activity_summary,
         }
@@ -218,10 +257,11 @@ def run_report(days: int = 30, json_output: bool = False):
 
 
 def _print_report(data: dict[str, Any]) -> None:
+    multiplier = data.get("multiplier", 1)
+    tier = _tier_label(data.get("rate_limit_tier", ""), multiplier)
+
     print()
-    print(
-        f"  {c(BOLD + WHITE, 'ccmeter')} {c(DIM, f'v{data.get("version", "?")}')}    {c(PINK, data['tier'])} {c(DIM, data['rate_limit_tier'])}"
-    )
+    print(f"  {c(BOLD + WHITE, 'ccmeter')} {c(DIM, f'v{data.get("version", "?")}')}    {c(PINK, tier)}")
     print(
         f"  {c(DIM, f'{data["sessions"]:,} sessions  ·  {data["token_events"]:,} events  ·  {data["usage_samples"]} samples  ·  {data["lookback_days"]}d')}"
     )
@@ -234,59 +274,68 @@ def _print_report(data: dict[str, Any]) -> None:
         return
 
     for bucket, bdata in data["buckets"].items():
+        window = BUCKET_LABELS.get(bucket) or bucket
+        capacity = bdata["capacity"]
+        base = bdata["base_budget"]
+
         print(f"  {hr()}")
-        label = bucket.replace("_", " ")
-        print(f"  {c(BOLD + WHITE, label)}  {c(DIM, pl(bdata['ticks'], 'tick'))}")
-        if bdata["mixed_ticks"]:
-            print(f"  {c(YELLOW, f'⚠ {pl(bdata["mixed_ticks"], "tick")} had mixed models — estimates less reliable')}")
+        print(f"  {c(BOLD + WHITE, window)}  {c(DIM, pl(bdata['ticks'], 'tick'))}")
+
+        # The answer: what is your budget?
+        print(f"  {c(BOLD + WHITE, f'${capacity:.2f}')} {c(DIM, 'budget')}", end="")
+        if multiplier > 1:
+            print(
+                f"  {c(DIM, '=')} {c(DIM, f'{multiplier}x')} {c(DIM, 'x')} {c(WHITE, f'${base:.2f}')} {c(DIM, 'pro base')}"
+            )
+        else:
+            print()
         print()
 
+        if bdata["mixed_ticks"]:
+            print(
+                f"  {c(DIM, f'{pl(bdata["mixed_ticks"], "tick")} mixed models — cost stayed consistent? validates metering model')}"
+            )
+            print()
+
+        # Per-model breakdown
         for model, mdata in sorted(bdata["models"].items()):
             tpp = mdata["avg_per_pct"]
             act = bdata.get("activity_per_pct", {})
             cache_pct = int(mdata["avg_cache_ratio"] * 100)
             cost = mdata["avg_cost_per_pct"]
 
-            # model name
-            print(f"  {c(CYAN, model)}")
+            short_model = model.replace("claude-", "")
+            print(f"    {c(CYAN, short_model)}  {c(DIM, f'${cost:.3f}/1%')}", end="")
+            if cache_pct > 0:
+                print(f"  {c(DIM, f'{cache_pct}% cached')}", end="")
+            print()
 
-            # headline: cost per 1%
-            cost_100 = cost * 100
-            print(f"    {c(DIM, '1%  ≈')}  {c(BOLD + WHITE, f'${cost:.3f}')} {c(DIM, 'API-equivalent')}")
-            print(f"    {c(DIM, '100% ≈')}  {c(DIM, f'${cost_100:.2f}')}")
-
-            # token breakdown
             parts = [
                 f"{c(PURPLE, human(tpp['input']))} {c(DIM, 'in')}",
                 f"{c(PURPLE, human(tpp['output']))} {c(DIM, 'out')}",
                 f"{c(PURPLE, human(tpp['cache_read']))} {c(DIM, 'cache↓')}",
                 f"{c(PURPLE, human(tpp['cache_create']))} {c(DIM, 'cache↑')}",
             ]
-            print(f"           {'  '.join(parts)}")
+            print(f"      {'  '.join(parts)}")
 
-            # cache ratio
-            if cache_pct > 0:
-                print(
-                    f"           {c(DIM, f'{cache_pct}% cached')}  {c(DIM, f'({human(mdata["avg_total_per_pct"])} raw tokens)')}"
-                )
-
-            # activity
-            if act and (act.get("tool_calls") or act.get("lines_added")):
-                aparts = []
-                if act.get("tool_calls"):
-                    aparts.append(f"{c(WHITE, f'{act["tool_calls"]:.0f}')} {c(DIM, 'tools')}")
-                if act.get("reads"):
-                    aparts.append(f"{c(WHITE, f'{act["reads"]:.0f}')} {c(DIM, 'reads')}")
-                if act.get("writes"):
-                    aparts.append(f"{c(WHITE, f'{act["writes"]:.0f}')} {c(DIM, 'edits')}")
-                if act.get("bash"):
-                    aparts.append(f"{c(WHITE, f'{act["bash"]:.0f}')} {c(DIM, 'bash')}")
-                print(f"           {'  ·  '.join(aparts)}")
-                added = act.get("lines_added", 0)
-                removed = act.get("lines_removed", 0)
-                if added or removed:
-                    print(f"           {c(GREEN, f'+{added:.0f}')} / {c(RED, f'-{removed:.0f}')} {c(DIM, 'lines')}")
+        # Activity (not per-model — aggregate across the tick)
+        act = bdata.get("activity_per_pct", {})
+        if act and (act.get("tool_calls") or act.get("lines_added")):
             print()
+            aparts = []
+            if act.get("tool_calls"):
+                aparts.append(f"{c(WHITE, f'{act["tool_calls"]:.0f}')} {c(DIM, 'tools')}")
+            if act.get("reads"):
+                aparts.append(f"{c(WHITE, f'{act["reads"]:.0f}')} {c(DIM, 'reads')}")
+            if act.get("writes"):
+                aparts.append(f"{c(WHITE, f'{act["writes"]:.0f}')} {c(DIM, 'edits')}")
+            if act.get("bash"):
+                aparts.append(f"{c(WHITE, f'{act["bash"]:.0f}')} {c(DIM, 'bash')}")
+            print(f"    {c(DIM, 'per 1%:')}  {'  ·  '.join(aparts)}")
+            added = act.get("lines_added", 0)
+            removed = act.get("lines_removed", 0)
+            if added or removed:
+                print(f"            {c(GREEN, f'+{added:.0f}')} / {c(RED, f'-{removed:.0f}')} {c(DIM, 'lines')}")
+        print()
 
-    print(f"  {c(DIM, '⚠  claude.ai + claude code simultaneously = inflated counts')}")
-    print(f"  {c(DIM, '   api tracks combined usage; we only see local logs')}")
+    print(f"  {c(DIM, '⚠  multi-surface usage (claude.ai + code) inflates token counts')}")
