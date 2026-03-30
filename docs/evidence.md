@@ -6,7 +6,7 @@ Anthropic ran a 2x usage promotion from December 25 at 00:00 UTC through Decembe
 
 When it expired, limits felt tighter than pre-promotion baseline. A Claude Code user provided The Register with screenshots showing roughly 60% reduction in token usage limits based on token-level analysis of Claude Code logs. Anthropic's response: users are "reacting to the withdrawal of bonus usage awarded over the holidays."
 
-A Max plan subscriber who'd rarely hit limits filed a GitHub bug report on January 4 — hitting rate limits within an hour of normal usage since January 1st, theorizing limits reverted to a tighter fall baseline rather than the pre-promotion level.
+A Max plan subscriber who'd never hit limits in three months [filed a bug report](https://github.com/anthropics/claude-code/issues/16157) on January 3 — hitting usage limits after two hours of normal usage. The issue remains open.
 
 On forums, Reddit, and the Claude Developers Discord, developers reported token consumption suddenly increasing, with accounts reaching maximum within minutes or hours on tasks that previously worked fine.
 
