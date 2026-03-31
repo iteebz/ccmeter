@@ -85,6 +85,10 @@ just ci                    # lint + typecheck + test
 
 Test against real data — the tool reads from your local `~/.claude/` and OS keychain. No mocks needed for integration testing. Unit tests should mock the keychain and API calls.
 
+## Pre-push invariant
+
+`just ci` must pass before every push. No exceptions. If lint, typecheck, or tests fail, fix them before pushing.
+
 ## Commit messages
 
 Format: `tag(scope): verb object` — scope is the **module**, not the project. `ccmeter` is never a useful scope because everything is ccmeter.
