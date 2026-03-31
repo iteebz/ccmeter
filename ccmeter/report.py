@@ -363,7 +363,7 @@ def _print_report(data: dict[str, Any]) -> None:
             cache_pct = int(mdata["avg_cache_ratio"] * 100)
             cost = mdata["avg_cost_per_pct"]
 
-            short_model = model.replace("claude-", "")
+            short_model = next((t for t in ("haiku", "sonnet", "opus") if t in model), model.replace("claude-", ""))
             print(f"    {c(CYAN, short_model)}  {c(DIM, f'${cost:.3f}/1%')}", end="")
             if cache_pct > 0:
                 print(f"  {c(DIM, f'{cache_pct}% cached')}", end="")
