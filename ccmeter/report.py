@@ -6,11 +6,12 @@ import bisect
 import json
 import sqlite3
 from collections import defaultdict
+from collections.abc import Callable
 from typing import Any
 
 from ccmeter import __version__
 from ccmeter.activity import ActivityEvent, activity_in_window
-from ccmeter.auth import get_credentials
+from ccmeter.auth import fetch_account_id, get_credentials
 from ccmeter.db import connect
 from ccmeter.display import BOLD, CYAN, DIM, GREEN, PINK, PURPLE, RED, WHITE, YELLOW, c, hr, human, pl
 from ccmeter.scan import scan
@@ -34,6 +35,19 @@ BUCKET_LABELS: dict[str, str] = {
     "seven_day_cowork": "7d cowork",
     "extra_usage": "extra usage",
 }
+
+
+def account_clause(account_id: str | None) -> Callable[..., str]:
+    """Return a function that generates SQL account_id filter clauses.
+
+    If account_id is set, filters to that account. Otherwise matches all rows.
+    Usage: af = account_clause(id); af("s1") → "s1.account_id = 'uuid'"
+    """
+    if not account_id:
+        return lambda prefix="": "1=1"
+    # UUID format — safe to inline (validated by API response structure)
+    safe = account_id.replace("'", "")
+    return lambda prefix="", _id=safe: f"{prefix}.account_id = '{_id}'" if prefix else f"account_id = '{_id}'"
 
 
 def pricing_for(model: str) -> dict[str, float]:
@@ -92,19 +106,23 @@ def calibrate_bucket(
     events: list[Any],
     conn: sqlite3.Connection,
     activity_events: list[ActivityEvent] | None = None,
+    account_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Find utilization ticks and calculate cost per percent across all models."""
+    af = account_clause(account_id)
     rows = conn.execute(
-        """
+        f"""
         SELECT s1.ts as t0, s2.ts as t1,
                s1.utilization as u0, s2.utilization as u1,
                s2.utilization - s1.utilization as delta_pct
         FROM usage_samples s1
         JOIN usage_samples s2
             ON s2.bucket = s1.bucket
+            AND {af("s2")}
             AND s2.id = (SELECT MIN(id) FROM usage_samples
-                         WHERE bucket = s1.bucket AND id > s1.id)
+                         WHERE bucket = s1.bucket AND {af()} AND id > s1.id)
         WHERE s1.bucket = ?
+            AND {af("s1")}
             AND s2.utilization > s1.utilization
         ORDER BY s1.ts
         """,
@@ -159,11 +177,14 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
     creds = get_credentials()
     tier = "unknown"
     rate_tier = "unknown"
+    account_id = None
     if creds:
         tier = creds.subscription_type or "unknown"
         rate_tier = creds.rate_limit_tier or "unknown"
+        account_id = fetch_account_id(creds.access_token)
 
     multiplier = parse_multiplier(rate_tier)
+    af = account_clause(account_id)
 
     result = scan(days=days, recache=recache)
 
@@ -173,14 +194,14 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
         return
 
     conn = connect()
-    sample_count = conn.execute("SELECT COUNT(*) as n FROM usage_samples").fetchone()["n"]
+    sample_count = conn.execute(f"SELECT COUNT(*) as n FROM usage_samples WHERE {af()}").fetchone()["n"]
 
     if sample_count == 0:
         print("no usage samples collected yet. run: ccmeter poll")
         conn.close()
         return
 
-    buckets_row = conn.execute("SELECT DISTINCT bucket FROM usage_samples").fetchall()
+    buckets_row = conn.execute(f"SELECT DISTINCT bucket FROM usage_samples WHERE {af()}").fetchall()
     buckets = [r["bucket"] for r in buckets_row]
     report_data: dict[str, Any] = {
         "version": __version__,
@@ -198,19 +219,25 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
     }
 
     for bucket in buckets:
-        cals = calibrate_bucket(bucket, result.events, conn, activity_events=result.activity)
+        cals = calibrate_bucket(bucket, result.events, conn, activity_events=result.activity, account_id=account_id)
         if not cals:
             continue
 
         # Aggregate cost per percent across all ticks (combined across models)
+        # Weight by 1/delta — a 1-tick observation is higher confidence than a 4-tick gap
         costs = [cal["cost_per_pct"] for cal in cals]
+        weights = [1.0 / cal["delta_pct"] for cal in cals]
 
-        # Per-model detail
-        model_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"ticks": 0, "cost_per_pct": [], "cache_ratio": []})
-        activity_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"ticks": 0, "values": []})
+        # Per-model detail (weighted by 1/delta for consistency with headline)
+        model_agg: dict[str, dict[str, Any]] = defaultdict(
+            lambda: {"weights": [], "cost_per_pct": [], "cache_ratio": [], "ticks": 0}
+        )
+        activity_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"weights": [], "values": []})
         for cal in cals:
+            w = 1.0 / cal["delta_pct"]
             for model, data in cal["models"].items():
                 model_agg[model]["ticks"] += 1
+                model_agg[model]["weights"].append(w)
                 model_agg[model]["cost_per_pct"].append(data["cost_per_pct"])
                 model_agg[model]["cache_ratio"].append(data["cache_ratio"])
                 for k in ("input", "output", "cache_read", "cache_create"):
@@ -219,28 +246,31 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
                 act = cal["activity"]
                 delta = cal["delta_pct"]
                 for k in ("prompts", "turns", "tool_calls", "reads", "writes", "bash", "lines_added", "lines_removed"):
-                    activity_agg[k]["ticks"] += 1
+                    activity_agg[k]["weights"].append(w)
                     activity_agg[k]["values"].append(act[k] / delta)
 
         model_summary = {}
         for model, agg in model_agg.items():
-            n = agg["ticks"]
+            mw = agg["weights"]
+            tw = sum(mw)
             model_summary[model] = {
-                "ticks": n,
-                "avg_cost_per_pct": sum(agg["cost_per_pct"]) / n,
-                "avg_cache_ratio": sum(agg["cache_ratio"]) / n,
+                "ticks": agg["ticks"],
+                "avg_cost_per_pct": sum(v * w for v, w in zip(agg["cost_per_pct"], mw)) / tw,
+                "avg_cache_ratio": sum(v * w for v, w in zip(agg["cache_ratio"], mw)) / tw,
                 "avg_per_pct": {
-                    k: int(sum(agg[f"{k}_per_pct"]) / n) for k in ("input", "output", "cache_read", "cache_create")
+                    k: int(sum(v * w for v, w in zip(agg[f"{k}_per_pct"], mw)) / tw)
+                    for k in ("input", "output", "cache_read", "cache_create")
                 },
             }
 
         activity_summary = {}
         for k, agg in activity_agg.items():
-            n = agg["ticks"]
-            if n:
-                activity_summary[k] = round(sum(agg["values"]) / n, 1)
+            if agg["weights"]:
+                tw = sum(agg["weights"])
+                activity_summary[k] = round(sum(v * w for v, w in zip(agg["values"], agg["weights"])) / tw, 1)
 
-        avg_cost = sum(costs) / len(costs)
+        total_weight = sum(weights)
+        avg_cost = sum(cost * w for cost, w in zip(costs, weights)) / total_weight
         capacity = avg_cost * 100
         base_budget = capacity / multiplier if multiplier > 1 else capacity
 
