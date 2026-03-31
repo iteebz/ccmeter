@@ -18,7 +18,7 @@ from ccmeter.display import progress, progress_done
 CLAUDE_DIR = Path.home() / ".claude" / "projects"
 
 # Bump when parse logic changes to auto-invalidate cache.
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 
 
 @dataclass
@@ -81,6 +81,7 @@ def _activity_to_dict(e: ActivityEvent) -> dict[str, Any]:
         "tn": e.tool_name,
         "p": e.prompts,
         "t": e.turns,
+        "m": e.model,
     }
 
 
@@ -96,6 +97,7 @@ def _dict_to_activity(d: dict[str, Any]) -> ActivityEvent:
         tool_name=d.get("tn", ""),
         prompts=d.get("p", 0),
         turns=d.get("t", 0),
+        model=d.get("m", ""),
     )
 
 
@@ -130,6 +132,7 @@ def scan(days: int = 30, recache: bool = False) -> ScanResult:
         cache = _load_cache(conn)
 
     if tty and total:
+        print()
         progress(total, 0, "scan")
 
     new_cache: list[tuple[str, float, int, int, bytes, bytes]] = []
@@ -175,6 +178,7 @@ def scan(days: int = 30, recache: bool = False) -> ScanResult:
 
     if tty and total:
         progress_done("scan")
+        print()
 
     result.sessions = len(seen_sessions)
     result.events.sort(key=lambda e: e.ts)
@@ -272,6 +276,7 @@ def scan_file(path: Path, cutoff: str) -> tuple[list[TokenEvent], list[ActivityE
 
                 act = extract_activity(d, msg_type, msg)
                 if act:
+                    act.model = model
                     activity.append(act)
     except OSError:
         pass

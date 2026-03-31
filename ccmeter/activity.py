@@ -27,6 +27,7 @@ class ActivityEvent:
     lines_added: int = 0
     lines_removed: int = 0
     tool_name: str = ""
+    model: str = ""
 
 
 def extract_activity(d: dict[str, Any], msg_type: str, msg: dict[str, Any]) -> ActivityEvent | None:
@@ -132,3 +133,54 @@ def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> Activit
         "lines_removed": lines_removed,
         "tools": dict(tools),
     }
+
+
+def activity_in_window_by_model(
+    events: list[ActivityEvent], t0: str, t1: str
+) -> dict[str, ActivityWindow]:
+    """Sum activity metrics per model for events between two timestamps."""
+    import bisect
+    from collections import defaultdict
+
+    lo = bisect.bisect_left(events, t0, key=lambda e: e.ts)
+    hi = bisect.bisect_right(events, t1, key=lambda e: e.ts)
+    by_model: dict[str, list[ActivityEvent]] = defaultdict(list)
+    for i in range(lo, hi):
+        e = events[i]
+        key = e.model or "unknown"
+        by_model[key].append(e)
+
+    result: dict[str, ActivityWindow] = {}
+    for model, model_events in by_model.items():
+        prompts = 0
+        turns = 0
+        tool_calls = 0
+        reads = 0
+        writes = 0
+        bash = 0
+        lines_added = 0
+        lines_removed = 0
+        tools: Counter[str] = Counter()
+        for e in model_events:
+            prompts += e.prompts
+            turns += e.turns
+            tool_calls += e.tool_calls
+            reads += e.reads
+            writes += e.writes
+            bash += e.bash
+            lines_added += e.lines_added
+            lines_removed += e.lines_removed
+            if e.tool_name:
+                tools[e.tool_name] += 1
+        result[model] = {
+            "prompts": prompts,
+            "turns": turns,
+            "tool_calls": tool_calls,
+            "reads": reads,
+            "writes": writes,
+            "bash": bash,
+            "lines_added": lines_added,
+            "lines_removed": lines_removed,
+            "tools": dict(tools),
+        }
+    return result

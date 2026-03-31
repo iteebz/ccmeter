@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ccmeter import __version__
-from ccmeter.activity import ActivityEvent, activity_in_window
+from ccmeter.activity import ActivityEvent, activity_in_window_by_model
 from ccmeter.auth import fetch_account_id, get_credentials
 from ccmeter.db import connect
 from ccmeter.display import BOLD, CYAN, DIM, GREEN, PINK, PURPLE, RED, WHITE, YELLOW, c, hr, human, pl
@@ -25,6 +25,7 @@ PRICING = {
 }
 
 FALLBACK_PRICING = PRICING["claude-opus-4-6"]
+APPROX = "\u2248"  # ≈
 
 # Bucket display names and window descriptions
 BUCKET_LABELS: dict[str, str] = {
@@ -176,9 +177,9 @@ def calibrate_bucket(
                 "cache_ratio": cache_total / total if total else 0.0,
             }
 
-        activity = None
+        activity_by_model: dict[str, Any] = {}
         if activity_events:
-            activity = activity_in_window(activity_events, t0, t1)
+            activity_by_model = activity_in_window_by_model(activity_events, t0, t1)
 
         calibrations.append(
             {
@@ -188,7 +189,7 @@ def calibrate_bucket(
                 "models": models,
                 "cost_per_pct": tick_cost,  # combined across models
                 "mixed": len(models) > 1,
-                "activity": activity,
+                "activity_by_model": activity_by_model,
             }
         )
     return calibrations
@@ -251,12 +252,13 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
         weights = [1.0 / cal["delta_pct"] for cal in cals]
 
         # Per-model detail (weighted by 1/delta for consistency with headline)
+        activity_keys = ("tool_calls", "reads", "writes", "bash", "lines_added", "lines_removed")
         model_agg: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"weights": [], "cost_per_pct": [], "cache_ratio": [], "ticks": 0}
         )
-        activity_agg: dict[str, dict[str, Any]] = defaultdict(lambda: {"weights": [], "values": []})
         for cal in cals:
             w = 1.0 / cal["delta_pct"]
+            delta = cal["delta_pct"]
             for model, data in cal["models"].items():
                 model_agg[model]["ticks"] += 1
                 model_agg[model]["weights"].append(w)
@@ -264,17 +266,22 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
                 model_agg[model]["cache_ratio"].append(data["cache_ratio"])
                 for k in ("input", "output", "cache_read", "cache_create"):
                     model_agg[model].setdefault(f"{k}_per_pct", []).append(data["tokens_per_pct"][k])
-            if cal.get("activity"):
-                act = cal["activity"]
-                delta = cal["delta_pct"]
-                for k in ("prompts", "turns", "tool_calls", "reads", "writes", "bash", "lines_added", "lines_removed"):
-                    activity_agg[k]["weights"].append(w)
-                    activity_agg[k]["values"].append(act[k] / delta)
+                # Per-model activity from this tick
+                model_act = cal.get("activity_by_model", {}).get(model)
+                if model_act:
+                    for k in activity_keys:
+                        model_agg[model].setdefault(f"act_{k}", []).append((model_act[k] / delta, w))
 
         model_summary = {}
         for model, agg in model_agg.items():
             mw = agg["weights"]
             tw = sum(mw)
+            act_summary: dict[str, float] = {}
+            for k in activity_keys:
+                pairs = agg.get(f"act_{k}", [])
+                if pairs:
+                    act_tw = sum(w for _, w in pairs)
+                    act_summary[k] = round(sum(v * w for v, w in pairs) / act_tw, 1)
             model_summary[model] = {
                 "ticks": agg["ticks"],
                 "avg_cost_per_pct": sum(v * w for v, w in zip(agg["cost_per_pct"], mw, strict=True)) / tw,
@@ -283,27 +290,29 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
                     k: int(sum(v * w for v, w in zip(agg[f"{k}_per_pct"], mw, strict=True)) / tw)
                     for k in ("input", "output", "cache_read", "cache_create")
                 },
+                "activity_per_pct": act_summary,
             }
-
-        activity_summary = {}
-        for k, agg in activity_agg.items():
-            if agg["weights"]:
-                tw = sum(agg["weights"])
-                activity_summary[k] = round(sum(v * w for v, w in zip(agg["values"], agg["weights"], strict=True)) / tw, 1)
 
         total_weight = sum(weights)
         avg_cost = sum(cost * w for cost, w in zip(costs, weights, strict=True)) / total_weight
         capacity = avg_cost * 100
         base_budget = capacity / multiplier if multiplier > 1 else capacity
 
+        # Days spanned by calibration data
+        from datetime import datetime
+
+        first_ts = datetime.fromisoformat(cals[0]["t0"])
+        last_ts = datetime.fromisoformat(cals[-1]["t1"])
+        span_days = max(1, round((last_ts - first_ts).total_seconds() / 86400, 1))
+
         report_data["buckets"][bucket] = {
             "ticks": len(cals),
+            "span_days": span_days,
             "mixed_ticks": sum(1 for cc in cals if cc["mixed"]),
             "avg_cost_per_pct": avg_cost,
             "capacity": capacity,
             "base_budget": base_budget,
             "models": model_summary,
-            "activity_per_pct": activity_summary,
         }
 
     conn.close()
@@ -316,10 +325,13 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
 
 
 def _print_report(data: dict[str, Any]) -> None:
+    # Spacing rules (never double \n):
+    #   \n above divider. \n below divider. \n between models.
+    #   \n above disclaimer. trailing \n.
     multiplier = data.get("multiplier", 1)
     tier = tier_label(data.get("rate_limit_tier", ""), multiplier)
+    approx = APPROX
 
-    print()
     ver = data.get("version", "?")
     sessions = data["sessions"]
     events = data["token_events"]
@@ -327,84 +339,86 @@ def _print_report(data: dict[str, Any]) -> None:
     lookback = data["lookback_days"]
     print(f"  {c(BOLD + WHITE, 'ccmeter')} {c(DIM, 'v' + ver)}    {c(PINK, tier)}")
     print(f"  {c(DIM, f'{sessions:,} sessions  ·  {events:,} events  ·  {samples} samples  ·  {lookback}d')}")
-    print()
 
     if not data["buckets"]:
+        print()
         print(f"  {c(YELLOW, 'no calibration data yet')}")
         print(f"  {c(DIM, 'need usage ticks that overlap with JSONL session data.')}")
         print(f"  {c(DIM, 'keep ccmeter poll running while you use Claude Code.')}")
         return
 
+    model_order = {"opus": 0, "sonnet": 1, "haiku": 2}
+
+    def model_sort_key(item: tuple[str, Any]) -> int:
+        name = item[0]
+        for prefix, rank in model_order.items():
+            if prefix in name:
+                return rank
+        return 99
+
+    dot = f" {c(DIM, '·')} "
+
     for bucket, bdata in data["buckets"].items():
         window = BUCKET_LABELS.get(bucket) or bucket
         capacity = bdata["capacity"]
         base = bdata["base_budget"]
+        span = bdata.get("span_days", 0)
+        span_str = f" over {span:.0f}d" if span >= 1 else ""
+        ticks_label = pl(bdata["ticks"], "tick")
 
+        print()                                                         # \n above divider
         print(f"  {hr()}")
-        print(f"  {c(BOLD + WHITE, window)}  {c(DIM, pl(bdata['ticks'], 'tick'))}")
-
-        # The answer: what is your budget?
-        budget_line = f"  {c(BOLD + WHITE, f'${capacity:.2f}')} {c(DIM, 'budget')}"
+        print()                                                         # \n below divider
+        print(f"  {c(BOLD + WHITE, window)}  {c(DIM, f'{ticks_label}{span_str}')}")
         if multiplier > 1:
-            budget_line += f"  {c(DIM, '=')} {c(DIM, f'{multiplier}x')} {c(DIM, 'x')} {c(WHITE, f'${base:.2f}')} {c(DIM, 'pro base')}"
-        print(budget_line)
+            print(f"  {c(BOLD + WHITE, f'${capacity:.0f}')} {c(DIM, approx)} {c(DIM, f'{multiplier}x')} {c(WHITE, f'${base:.0f}')} {c(DIM, 'pro base')}")
+        else:
+            print(f"  {c(BOLD + WHITE, f'${capacity:.0f}')} {c(DIM, 'budget')}")
 
-        print()
-
-        if bdata["mixed_ticks"]:
-            mixed = pl(bdata["mixed_ticks"], "tick")
-            print(f"  {c(DIM, f'{mixed} mixed models — cost stayed consistent? validates metering model')}")
-            print()
-
-        # Per-model breakdown
-        for model, mdata in sorted(bdata["models"].items()):
+        for model, mdata in sorted(bdata["models"].items(), key=model_sort_key):
             tpp = mdata["avg_per_pct"]
-            act = bdata.get("activity_per_pct", {})
             cache_pct = int(mdata["avg_cache_ratio"] * 100)
             cost = mdata["avg_cost_per_pct"]
+            act = mdata.get("activity_per_pct", {})
 
-            short_model = next((t for t in ("haiku", "sonnet", "opus") if t in model), model.replace("claude-", ""))
-            print(f"    {c(CYAN, short_model)}  {c(DIM, f'${cost:.3f}/1%')}", end="")
-            if cache_pct > 0:
-                print(f"  {c(DIM, f'{cache_pct}% cached')}", end="")
-            print()
-
-            parts = [
+            short_model = next((t for t in ("opus", "sonnet", "haiku") if t in model), model.replace("claude-", ""))
+            cache_str = f" {c(DIM, '·')} {c(WHITE, f'{cache_pct}%')} {c(DIM, 'cached')}" if cache_pct > 0 else ""
+            token_parts = [
                 f"{c(PURPLE, human(tpp['input']))} {c(DIM, 'in')}",
                 f"{c(PURPLE, human(tpp['output']))} {c(DIM, 'out')}",
-                f"{c(PURPLE, human(tpp['cache_read']))} {c(DIM, 'cache↓')}",
-                f"{c(PURPLE, human(tpp['cache_create']))} {c(DIM, 'cache↑')}",
+                f"{c(PURPLE, human(tpp['cache_read']))} {c(DIM, 'cr')}",
+                f"{c(PURPLE, human(tpp['cache_create']))} {c(DIM, 'cw')}",
             ]
-            print(f"      {'  '.join(parts)}")
+            print()                                                     # \n between models
+            print(f"  {c(CYAN, f'{short_model:<8}')}{c(WHITE, f'${cost:.2f}')}{cache_str} {c(DIM, '|')} {dot.join(token_parts)}")
 
-        # Activity (not per-model — aggregate across the tick)
-        act = bdata.get("activity_per_pct", {})
-        if act and (act.get("tool_calls") or act.get("lines_added")):
-            print()
-            aparts = []
+            act_parts = []
             for key, label in [("tool_calls", "tools"), ("reads", "reads"), ("writes", "edits"), ("bash", "bash")]:
                 v = act.get(key)
                 if v:
-                    aparts.append(f"{c(WHITE, f'{v:.0f}')} {c(DIM, label)}")
-            print(f"    {c(DIM, 'per 1%:')}  {'  ·  '.join(aparts)}")
+                    act_parts.append(f"{c(WHITE, f'{v:.0f}')} {c(DIM, label)}")
             added = act.get("lines_added", 0)
             removed = act.get("lines_removed", 0)
             if added or removed:
-                print(f"            {c(GREEN, f'+{added:.0f}')} / {c(RED, f'-{removed:.0f}')} {c(DIM, 'lines')}")
-        print()
+                act_parts.append(f"{c(GREEN, f'+{added:.0f}')}/{c(RED, f'-{removed:.0f}')} {c(DIM, 'loc')}")
+            if act_parts:
+                print(f"          {dot.join(act_parts)}")
 
-    # Binding constraint: 5h windows vs 7d cap
+    # Binding constraint
     five_h = data["buckets"].get("five_hour")
     seven_d = data["buckets"].get("seven_day")
     if five_h and seven_d:
         windows_per_week = 7 * 24 / 5  # 33.6
         max_from_5h = five_h["capacity"] * windows_per_week
-        print(f"  {hr()}")
-        print(f"  {c(DIM, 'if you maxed every 5h window:')} {c(WHITE, f'${max_from_5h:,.0f}')}{c(DIM, '/7d')}")
         cap_7d = seven_d["capacity"]
-        print(f"  {c(DIM, '7d cap:')} {c(WHITE, f'${cap_7d:,.0f}')}")
         ratio = seven_d["capacity"] / max_from_5h * 100
+        print()                                                         # \n above divider
+        print(f"  {hr()}")
+        print()                                                         # \n below divider
+        print(f"  {c(DIM, 'if you maxed every 5h window:')} {c(WHITE, f'${max_from_5h:,.0f}')}{c(DIM, '/7d')}")
+        print(f"  {c(DIM, '7d cap:')} {c(WHITE, f'${cap_7d:,.0f}')}")
         print(f"  {c(DIM, '7d limits you to')} {c(YELLOW, f'{ratio:.0f}%')} {c(DIM, 'of theoretical 5h throughput')}")
-        print()
 
+    print()                                                             # \n above disclaimer
     print(f"  {c(DIM, '⚠  claude.ai usage during a tick makes budget estimates conservative')}")
+    print()                                                             # trailing \n

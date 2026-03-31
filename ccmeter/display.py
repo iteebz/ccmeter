@@ -21,7 +21,7 @@ RESET = "\033[0m"
 RULE = "\033[38;2;60;60;80m"
 
 # Wave bar
-WIDTH = 30
+WIDTH = 40
 _GRAD_START = (140, 120, 220)
 _GRAD_END = (210, 140, 190)
 
@@ -31,7 +31,7 @@ def c(code: str, text: str | int | float) -> str:
     return f"{code}{text}{RESET}" if sys.stdout.isatty() else str(text)
 
 
-def hr(width: int = 50) -> str:
+def hr(width: int = 64) -> str:
     return c(RULE, "─" * width)
 
 
