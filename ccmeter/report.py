@@ -91,7 +91,18 @@ def tier_label(rate_limit_tier: str, multiplier: int) -> str:
     return rate_limit_tier
 
 
-def tokens_in_window(events: list[Any], t0: str, t1: str) -> dict[str, dict[str, int]]:
+def model_filter_for(bucket: str) -> str | None:
+    """Extract model filter from bucket name. e.g. 'seven_day_sonnet' → 'claude-sonnet'."""
+    model_buckets = {
+        "seven_day_sonnet": "claude-sonnet",
+        "seven_day_opus": "claude-opus",
+    }
+    return model_buckets.get(bucket)
+
+
+def tokens_in_window(
+    events: list[Any], t0: str, t1: str, model_prefix: str | None = None
+) -> dict[str, dict[str, int]]:
     """Sum token counts per model for events between two timestamps."""
     lo = bisect.bisect_left(events, t0, key=lambda e: e.ts)
     hi = bisect.bisect_right(events, t1, key=lambda e: e.ts)
@@ -101,6 +112,8 @@ def tokens_in_window(events: list[Any], t0: str, t1: str) -> dict[str, dict[str,
     for i in range(lo, hi):
         e = events[i]
         m = e.model or "unknown"
+        if model_prefix and not m.startswith(model_prefix):
+            continue
         by_model[m]["input"] += e.input_tokens
         by_model[m]["output"] += e.output_tokens
         by_model[m]["cache_read"] += e.cache_read
@@ -117,6 +130,7 @@ def calibrate_bucket(
     account_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Find utilization ticks and calculate cost per percent across all models."""
+    model_prefix = model_filter_for(bucket)
     af = account_clause(account_id)
     rows = conn.execute(
         f"""
@@ -140,7 +154,7 @@ def calibrate_bucket(
     calibrations = []
     for r in rows:
         t0, t1, delta = r["t0"], r["t1"], r["delta_pct"]
-        by_model = tokens_in_window(events, t0, t1)
+        by_model = tokens_in_window(events, t0, t1, model_prefix)
         if not by_model:
             continue
 
