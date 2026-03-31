@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
-from ccmeter.auth import Credentials, get_credentials
+from ccmeter.auth import Credentials, fetch_account_id, get_credentials
 from ccmeter.db import connect
 
 PIDFILE = Path.home() / ".ccmeter" / "poll.pid"
@@ -67,7 +67,11 @@ def fetch_usage(creds: Credentials) -> PollResult:
 
 
 def record_samples(
-    data: dict[str, Any], last_seen: dict[str, float], conn: sqlite3.Connection, tier: str | None = None
+    data: dict[str, Any],
+    last_seen: dict[str, float],
+    conn: sqlite3.Connection,
+    tier: str | None = None,
+    account_id: str | None = None,
 ) -> dict[str, float]:
     """Write rows for any bucket that changed. Returns updated last_seen."""
     for key, value in data.items():
@@ -86,8 +90,8 @@ def record_samples(
 
         resets_at = value.get("resets_at")
         conn.execute(
-            "INSERT INTO usage_samples (bucket, utilization, resets_at, tier, raw) VALUES (?, ?, ?, ?, ?)",
-            (key, float(utilization), resets_at, tier, json.dumps(value)),
+            "INSERT INTO usage_samples (bucket, utilization, resets_at, tier, raw, account_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (key, float(utilization), resets_at, tier, json.dumps(value), account_id),
         )
         conn.commit()
 
@@ -101,12 +105,19 @@ def record_samples(
     return last_seen
 
 
-def seed_last_seen(conn: sqlite3.Connection) -> dict[str, float]:
+def seed_last_seen(conn: sqlite3.Connection, account_id: str | None = None) -> dict[str, float]:
     """Load most recent utilization per bucket from DB to avoid duplicate rows on restart."""
     last_seen = {}
-    rows = conn.execute(
-        "SELECT bucket, utilization FROM usage_samples WHERE id IN (SELECT MAX(id) FROM usage_samples GROUP BY bucket)"
-    ).fetchall()
+    if account_id:
+        rows = conn.execute(
+            "SELECT bucket, utilization FROM usage_samples "
+            "WHERE account_id = ? AND id IN (SELECT MAX(id) FROM usage_samples WHERE account_id = ? GROUP BY bucket)",
+            (account_id, account_id),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT bucket, utilization FROM usage_samples WHERE id IN (SELECT MAX(id) FROM usage_samples GROUP BY bucket)"
+        ).fetchall()
     for row in rows:
         last_seen[row["bucket"]] = row["utilization"]
     return last_seen
@@ -176,13 +187,16 @@ def run_poll(interval: int = 120, once: bool = False):
         sys.exit(1)
 
     tier = creds.subscription_type or creds.rate_limit_tier
+    account_id = fetch_account_id(creds.access_token)
     conn = connect()
-    last_seen = seed_last_seen(conn)
+    last_seen = seed_last_seen(conn, account_id=account_id)
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
     print(f"ccmeter polling every {interval}s")
+    if account_id:
+        print(f"  account: {account_id[:8]}…")
     if tier:
         print(f"  tier: {tier}")
     if last_seen:
@@ -190,28 +204,40 @@ def run_poll(interval: int = 120, once: bool = False):
 
     backoff = interval
     consecutive_failures = 0
+    account_dirty = False  # true after cred refresh; resolve on next successful fetch
     while _running:
         result = fetch_usage(creds)
         if result.data:
-            last_seen = record_samples(result.data, last_seen, conn, tier=tier)
+            if account_dirty:
+                new_account = fetch_account_id(creds.access_token)
+                if new_account and new_account != account_id:
+                    account_id = new_account
+                    last_seen = seed_last_seen(conn, account_id=account_id)
+                    print(f"  account changed: {account_id[:8]}…")
+                account_dirty = False
+            last_seen = record_samples(result.data, last_seen, conn, tier=tier, account_id=account_id)
             backoff = interval
             consecutive_failures = 0
         else:
             consecutive_failures += 1
 
-            # auth failures: refresh immediately, don't wait for 3 strikes
+            # auth failures: refresh creds and retry immediately if token changed
             if result.status in (401, 403):
                 refreshed = get_credentials()
-                if refreshed:
+                if refreshed and refreshed.access_token != creds.access_token:
                     creds = refreshed
                     tier = creds.subscription_type or creds.rate_limit_tier
+                    account_dirty = True
                     print("  refreshed credentials")
                     consecutive_failures = 0
+                    if not once:
+                        continue  # retry now with fresh creds
             elif consecutive_failures >= 3:
                 refreshed = get_credentials()
                 if refreshed:
                     creds = refreshed
                     tier = creds.subscription_type or creds.rate_limit_tier
+                    account_dirty = True
                     print("  refreshed credentials (fallback)")
                     consecutive_failures = 0
 
