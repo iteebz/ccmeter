@@ -128,9 +128,7 @@ def _install_from_file(path: Path, installer: str) -> int:
         return subprocess.run(["pipx", "install", s, "--force"]).returncode
     if installer == "uv":
         return subprocess.run(["uv", "tool", "install", s, "--force"]).returncode
-    return subprocess.run(
-        [sys.executable, "-m", "pip", "install", s, "--force-reinstall"]
-    ).returncode
+    return subprocess.run([sys.executable, "-m", "pip", "install", s, "--force-reinstall"]).returncode
 
 
 def run_update():

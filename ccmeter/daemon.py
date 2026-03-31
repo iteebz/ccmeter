@@ -159,15 +159,11 @@ def _install_windows(ccmeter_bin: str) -> int:
     err_path = log_dir / "poll.err"
 
     run_cmd = log_dir / "run.cmd"
-    run_cmd.write_text(
-        f'@echo off\nset PYTHONUNBUFFERED=1\n"{ccmeter_bin}" poll >> "{log_path}" 2>> "{err_path}"\n'
-    )
+    run_cmd.write_text(f'@echo off\nset PYTHONUNBUFFERED=1\n"{ccmeter_bin}" poll >> "{log_path}" 2>> "{err_path}"\n')
 
     # Launches with hidden window
     run_vbs = log_dir / "run.vbs"
-    run_vbs.write_text(
-        f'CreateObject("WScript.Shell").Run """{run_cmd}""", 0, True\n'
-    )
+    run_vbs.write_text(f'CreateObject("WScript.Shell").Run """{run_cmd}""", 0, True\n')
 
     xml = textwrap.dedent(f"""\
         <?xml version="1.0" encoding="UTF-16"?>
