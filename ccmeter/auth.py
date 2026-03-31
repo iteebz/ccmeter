@@ -5,7 +5,12 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
+
+PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
+BETA_HEADER = "oauth-2025-04-20"
 
 
 @dataclass
@@ -15,6 +20,24 @@ class Credentials:
     expires_at: str | None
     subscription_type: str | None
     rate_limit_tier: str | None
+    account_id: str | None = None
+
+
+def fetch_account_id(access_token: str) -> str | None:
+    """Fetch stable account UUID from Anthropic profile API."""
+    req = urllib.request.Request(
+        PROFILE_URL,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "anthropic-beta": BETA_HEADER,
+        },
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=5)
+        data = json.loads(resp.read().decode())
+        return data.get("account", {}).get("uuid")
+    except (urllib.error.URLError, json.JSONDecodeError, OSError, KeyError):
+        return None
 
 
 def get_credentials() -> Credentials | None:
