@@ -1,8 +1,9 @@
 """Per-tick budget chart, computed from source data."""
 
+from ccmeter.auth import fetch_account_id, get_credentials
 from ccmeter.db import connect
 from ccmeter.display import BOLD, DIM, RESET, WHITE, c, gradient, hr, local_ts
-from ccmeter.report import BUCKET_LABELS, calibrate_bucket
+from ccmeter.report import BUCKET_LABELS, account_clause, calibrate_bucket
 from ccmeter.scan import scan
 
 CHART_WIDTH = 60
@@ -82,15 +83,19 @@ def show_trend(days: int = 30, recache: bool = False):
         print("no token events found. run: ccmeter report")
         return
 
+    creds = get_credentials()
+    account_id = fetch_account_id(creds.access_token) if creds else None
+    af = account_clause(account_id)
+
     conn = connect()
-    buckets_row = conn.execute("SELECT DISTINCT bucket FROM usage_samples").fetchall()
+    buckets_row = conn.execute(f"SELECT DISTINCT bucket FROM usage_samples WHERE {af()}").fetchall()
     buckets = [r["bucket"] for r in buckets_row]
 
     print()
     print(f"  {c(BOLD + WHITE, 'trend')}  {c(DIM, f'{days}d')}")
 
     for bucket in buckets:
-        cals = calibrate_bucket(bucket, result.events, conn)
+        cals = calibrate_bucket(bucket, result.events, conn, account_id=account_id)
         if not cals:
             continue
 

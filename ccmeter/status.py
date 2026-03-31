@@ -2,8 +2,10 @@
 
 import os
 
+from ccmeter.auth import fetch_account_id, get_credentials
 from ccmeter.db import DB_PATH, connect
 from ccmeter.display import BOLD, CYAN, DIM, GREEN, RED, WHITE, YELLOW, ago, c, hr
+from ccmeter.report import account_clause
 
 
 def _daemon_status() -> tuple[str, str]:
@@ -36,22 +38,26 @@ def show_status():
         print("no data collected yet. run: ccmeter poll")
         return
 
+    creds = get_credentials()
+    account_id = fetch_account_id(creds.access_token) if creds else None
+    af = account_clause(account_id)
+
     conn = connect()
 
-    total = conn.execute("SELECT COUNT(*) as n FROM usage_samples").fetchone()["n"]
-    latest = conn.execute("SELECT ts FROM usage_samples ORDER BY ts DESC LIMIT 1").fetchone()
-    oldest = conn.execute("SELECT ts FROM usage_samples ORDER BY ts ASC LIMIT 1").fetchone()
+    total = conn.execute(f"SELECT COUNT(*) as n FROM usage_samples WHERE {af()}").fetchone()["n"]
+    latest = conn.execute(f"SELECT ts FROM usage_samples WHERE {af()} ORDER BY ts DESC LIMIT 1").fetchone()
+    oldest = conn.execute(f"SELECT ts FROM usage_samples WHERE {af()} ORDER BY ts ASC LIMIT 1").fetchone()
 
     # per-bucket current state
     current = conn.execute(
-        """SELECT bucket, utilization, ts FROM usage_samples
-           WHERE id IN (SELECT MAX(id) FROM usage_samples GROUP BY bucket)
+        f"""SELECT bucket, utilization, ts FROM usage_samples
+           WHERE {af()} AND id IN (SELECT MAX(id) FROM usage_samples WHERE {af()} GROUP BY bucket)
            ORDER BY bucket"""
     ).fetchall()
 
     # collection gaps: samples in last 24h
     recent_count = conn.execute(
-        "SELECT COUNT(*) as n FROM usage_samples WHERE ts > datetime('now', '-24 hours')"
+        f"SELECT COUNT(*) as n FROM usage_samples WHERE {af()} AND ts > datetime('now', '-24 hours')"
     ).fetchone()["n"]
 
     conn.close()
@@ -66,7 +72,9 @@ def show_status():
     print(f"  {c(DIM, 'samples')}  {c(WHITE, total)}  {c(DIM, f'({recent_count} last 24h)')}")
     if latest:
         freshness = ago(latest["ts"])
-        fresh_color = GREEN if "just now" in freshness or "m ago" in freshness else YELLOW if "h ago" in freshness else RED
+        fresh_color = (
+            GREEN if "just now" in freshness or "m ago" in freshness else YELLOW if "h ago" in freshness else RED
+        )
         print(f"  {c(DIM, 'latest')}   {c(fresh_color, freshness)}")
     if oldest and latest:
         print(f"  {c(DIM, 'range')}    {c(DIM, oldest['ts'][:16])} → {c(DIM, latest['ts'][:16])}")

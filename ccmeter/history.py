@@ -2,15 +2,20 @@
 
 import json
 
+from ccmeter.auth import fetch_account_id, get_credentials
 from ccmeter.db import connect
 from ccmeter.display import BOLD, CYAN, DIM, WHITE, YELLOW, c, hr, local_ts
+from ccmeter.report import account_clause
 
 
 def show_history(days: int = 7, json_output: bool = False):
+    creds = get_credentials()
+    account_id = fetch_account_id(creds.access_token) if creds else None
+    af = account_clause(account_id)
     conn = connect()
     rows = conn.execute(
-        "SELECT ts, bucket, utilization, resets_at FROM usage_samples "
-        "WHERE ts > datetime('now', ? || ' days') ORDER BY ts DESC",
+        f"SELECT ts, bucket, utilization, resets_at FROM usage_samples "
+        f"WHERE {af()} AND ts > datetime('now', ? || ' days') ORDER BY ts DESC",
         (f"-{days}",),
     ).fetchall()
     conn.close()
