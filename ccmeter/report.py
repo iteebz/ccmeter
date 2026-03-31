@@ -298,16 +298,21 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
         capacity = avg_cost * 100
         base_budget = capacity / multiplier if multiplier > 1 else capacity
 
-        # Days spanned by calibration data
-        from datetime import datetime
+        # Hours spanned: first sample in this bucket to now
+        from datetime import datetime, timezone
 
-        first_ts = datetime.fromisoformat(cals[0]["t0"])
-        last_ts = datetime.fromisoformat(cals[-1]["t1"])
-        span_days = max(1, round((last_ts - first_ts).total_seconds() / 86400, 1))
+        row = conn.execute(
+            "SELECT MIN(ts) FROM usage_samples WHERE bucket = ?",
+            (bucket,),
+        ).fetchone()
+        first_sample = datetime.fromisoformat(row[0])
+        if first_sample.tzinfo is None:
+            first_sample = first_sample.replace(tzinfo=timezone.utc)
+        span_hours = (datetime.now(tz=timezone.utc) - first_sample).total_seconds() / 3600
 
         report_data["buckets"][bucket] = {
             "ticks": len(cals),
-            "span_days": span_days,
+            "span_hours": span_hours,
             "mixed_ticks": sum(1 for cc in cals if cc["mixed"]),
             "avg_cost_per_pct": avg_cost,
             "capacity": capacity,
@@ -362,8 +367,15 @@ def _print_report(data: dict[str, Any]) -> None:
         window = BUCKET_LABELS.get(bucket) or bucket
         capacity = bdata["capacity"]
         base = bdata["base_budget"]
-        span = bdata.get("span_days", 0)
-        span_str = f" over {span:.0f}d" if span >= 1 else ""
+        hours = bdata.get("span_hours", 0)
+        if hours >= 24:
+            days = int(hours // 24)
+            rem_h = int(hours % 24)
+            span_str = f" over {days}d {rem_h}h" if rem_h else f" over {days}d"
+        elif hours >= 1:
+            span_str = f" over {int(hours)}h"
+        else:
+            span_str = ""
         ticks_label = pl(bdata["ticks"], "tick")
 
         print()                                                         # \n above divider
