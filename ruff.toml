@@ -34,6 +34,7 @@ ignore = [
     "S104",     # binding to all interfaces
     "S603",     # subprocess calls intentional
     "S607",     # partial executable path
+    "S608",     # SQL injection — account_clause() returns hardcoded fragments from API-sourced UUIDs
     "T201",     # print() is the CLI output primitive
     "PLC0415",  # deferred imports for fast CLI startup
 ]
@@ -42,3 +43,4 @@ ignore = [
 "tests/**/*.py" = ["S101", "S105"]
 "ccmeter/poll.py" = ["S310"]
 "ccmeter/update.py" = ["S310"]
+"ccmeter/auth.py" = ["S310"]

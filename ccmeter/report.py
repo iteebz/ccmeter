@@ -44,10 +44,18 @@ def account_clause(account_id: str | None) -> Callable[..., str]:
     Usage: af = account_clause(id); af("s1") → "s1.account_id = 'uuid'"
     """
     if not account_id:
-        return lambda prefix="": "1=1"
+
+        def _all(prefix: str = "") -> str:
+            return "1=1"
+
+        return _all
     # UUID format — safe to inline (validated by API response structure)
     safe = account_id.replace("'", "")
-    return lambda prefix="", _id=safe: f"{prefix}.account_id = '{_id}'" if prefix else f"account_id = '{_id}'"
+
+    def _filter(prefix: str = "") -> str:
+        return f"{prefix}.account_id = '{safe}'" if prefix else f"account_id = '{safe}'"
+
+    return _filter
 
 
 def pricing_for(model: str) -> dict[str, float]:
@@ -255,10 +263,10 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
             tw = sum(mw)
             model_summary[model] = {
                 "ticks": agg["ticks"],
-                "avg_cost_per_pct": sum(v * w for v, w in zip(agg["cost_per_pct"], mw)) / tw,
-                "avg_cache_ratio": sum(v * w for v, w in zip(agg["cache_ratio"], mw)) / tw,
+                "avg_cost_per_pct": sum(v * w for v, w in zip(agg["cost_per_pct"], mw, strict=True)) / tw,
+                "avg_cache_ratio": sum(v * w for v, w in zip(agg["cache_ratio"], mw, strict=True)) / tw,
                 "avg_per_pct": {
-                    k: int(sum(v * w for v, w in zip(agg[f"{k}_per_pct"], mw)) / tw)
+                    k: int(sum(v * w for v, w in zip(agg[f"{k}_per_pct"], mw, strict=True)) / tw)
                     for k in ("input", "output", "cache_read", "cache_create")
                 },
             }
@@ -267,10 +275,10 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
         for k, agg in activity_agg.items():
             if agg["weights"]:
                 tw = sum(agg["weights"])
-                activity_summary[k] = round(sum(v * w for v, w in zip(agg["values"], agg["weights"])) / tw, 1)
+                activity_summary[k] = round(sum(v * w for v, w in zip(agg["values"], agg["weights"], strict=True)) / tw, 1)
 
         total_weight = sum(weights)
-        avg_cost = sum(cost * w for cost, w in zip(costs, weights)) / total_weight
+        avg_cost = sum(cost * w for cost, w in zip(costs, weights, strict=True)) / total_weight
         capacity = avg_cost * 100
         base_budget = capacity / multiplier if multiplier > 1 else capacity
 
