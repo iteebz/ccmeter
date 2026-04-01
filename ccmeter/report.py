@@ -382,6 +382,40 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
             "models": model_summary,
         }
 
+    # Live state: current utilization + burn rate per bucket
+    window_hours: dict[str, float] = {
+        "five_hour": 5.0,
+        "seven_day": 168.0,
+        "seven_day_opus": 168.0,
+        "seven_day_sonnet": 168.0,
+        "seven_day_cowork": 168.0,
+        "seven_day_oauth_apps": 168.0,
+    }
+    live_rows = conn.execute(
+        f"""SELECT bucket, utilization, resets_at, ts FROM usage_samples
+           WHERE {af()} AND id IN (SELECT MAX(id) FROM usage_samples WHERE {af()} GROUP BY bucket)"""
+    ).fetchall()
+    live: dict[str, dict[str, Any]] = {}
+    for r in live_rows:
+        bucket = r["bucket"]
+        util = r["utilization"]
+        resets_at = r["resets_at"]
+        wh = window_hours.get(bucket)
+        entry: dict[str, Any] = {"utilization": util, "ts": r["ts"]}
+        if resets_at and wh and util > 0:
+            br = burn_rate(util, resets_at, wh)
+            if br:
+                entry["burn"] = br
+        # Combine with calibrated budget if available
+        bdata = report_data["buckets"].get(bucket)
+        if bdata and entry.get("burn"):
+            cost_per_pct = bdata["avg_cost_per_pct"]
+            rate_pct_h = entry["burn"]["rate_pct_per_hour"]
+            entry["dollars_per_hour"] = cost_per_pct * rate_pct_h
+            entry["dollars_remaining"] = cost_per_pct * (100.0 - util)
+        live[bucket] = entry
+    report_data["live"] = live
+
     conn.close()
 
     if json_output:
@@ -505,6 +539,65 @@ def _print_report(data: dict[str, Any]) -> None:
             # What fraction of 7d aggregate does this model-specific cap represent?
             model_ratio = mb_cap / cap_7d * 100 if cap_7d > 0 else 0
             print(f"  {c(DIM, f'{short} 7d cap:')} {c(WHITE, f'${mb_cap:,.0f}')} {c(DIM, f'({model_ratio:.0f}% of aggregate)')}")
+
+    # Live burn rate — connects calibrated budget to current utilization
+    live = data.get("live", {})
+    live_buckets = {k: v for k, v in live.items() if v.get("burn") and k in data["buckets"]}
+    if live_buckets:
+        print()                                                         # \n above divider
+        print(f"  {hr()}")
+        print()                                                         # \n below divider
+        print(f"  {c(BOLD + WHITE, 'now')}")
+
+        # Find which bucket exhausts first
+        first_bucket = None
+        first_mins = float("inf")
+        for bname, ldata in live_buckets.items():
+            mins = ldata["burn"]["remaining_mins"]
+            if mins < first_mins:
+                first_mins = mins
+                first_bucket = bname
+
+        for bname, ldata in live_buckets.items():
+            window = BUCKET_LABELS.get(bname) or bname
+            util = ldata["utilization"]
+            br = ldata["burn"]
+            dph = ldata.get("dollars_per_hour", 0)
+            remaining_usd = ldata.get("dollars_remaining", 0)
+            mins = br["remaining_mins"]
+            warning = br["warning"]
+
+            # Format time remaining
+            if mins < 60:
+                time_str = f"~{mins:.0f}m"
+            elif mins < 1440:
+                time_str = f"~{mins / 60:.0f}h"
+            else:
+                time_str = f"~{mins / 1440:.0f}d"
+
+            # Rate in appropriate unit
+            rate = br["rate_pct_per_hour"]
+            is_weekly = bname != "five_hour"
+            if is_weekly:
+                rate_str = f"{rate * 24:.0f}%/d"
+                dpr = dph * 24
+                dollar_rate = f"${dpr:.0f}/d" if dpr >= 1 else f"${dph:.2f}/h"
+            else:
+                rate_str = f"{rate:.0f}%/h"
+                dollar_rate = f"${dph:.2f}/h"
+
+            warn_color = RED if warning == "critical" else YELLOW if warning == "warning" else DIM
+            binding = f"  {c(RED, '← binding')}" if bname == first_bucket and len(live_buckets) > 1 else ""
+
+            print(
+                f"  {c(DIM, f'{window:<14}')}"
+                f" {c(warn_color, f'{util:.0f}%')}"
+                f"  {c(DIM, rate_str)}"
+                f"  {c(WHITE, dollar_rate)}"
+                f"  {c(DIM, f'${remaining_usd:.0f} left')}"
+                f"  {c(PINK if mins < 120 else DIM, time_str)}"
+                f"{binding}"
+            )
 
     print()                                                             # \n above disclaimer
     print(f"  {c(DIM, '⚠  claude.ai usage during a tick makes budget estimates conservative')}")
