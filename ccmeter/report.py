@@ -34,7 +34,16 @@ BUCKET_LABELS: dict[str, str] = {
     "seven_day_sonnet": "7d sonnet",
     "seven_day_opus": "7d opus",
     "seven_day_cowork": "7d cowork",
+    "seven_day_oauth_apps": "7d oauth apps",
     "extra_usage": "extra usage",
+}
+
+# Early warning thresholds from Claude Code source.
+# Format: (utilization_threshold, max_time_elapsed_fraction)
+# "Warn when utilization >= X and time elapsed <= Y of window"
+EARLY_WARNINGS: dict[str, list[tuple[float, float]]] = {
+    "five_hour": [(90.0, 0.72)],
+    "seven_day": [(25.0, 0.15), (50.0, 0.35), (75.0, 0.60)],
 }
 
 
@@ -90,6 +99,55 @@ def tier_label(rate_limit_tier: str, multiplier: int) -> str:
     if "pro" in rate_limit_tier:
         return "pro"
     return rate_limit_tier
+
+
+def burn_rate(utilization: float, resets_at: str, window_hours: float) -> dict[str, Any] | None:
+    """Compute burn rate and predict exhaustion from current utilization and reset time.
+
+    Returns dict with rate, minutes_to_exhaustion, warning_level, or None if data insufficient.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(tz=timezone.utc)
+    reset = datetime.fromisoformat(resets_at)
+    if reset.tzinfo is None:
+        reset = reset.replace(tzinfo=timezone.utc)
+
+    remaining_secs = (reset - now).total_seconds()
+    if remaining_secs <= 0:
+        return None
+
+    window_secs = window_hours * 3600
+    elapsed_secs = window_secs - remaining_secs
+    if elapsed_secs <= 0:
+        return None
+
+    elapsed_frac = elapsed_secs / window_secs
+    # pct per hour at current pace
+    rate = utilization / (elapsed_secs / 3600) if elapsed_secs > 0 else 0.0
+    remaining_pct = 100.0 - utilization
+    mins_to_exhaust = (remaining_pct / rate * 60) if rate > 0 else float("inf")
+
+    # Check against early warning thresholds
+    bucket_key = "five_hour" if window_hours <= 6 else "seven_day"
+    warning = None
+    for threshold_util, max_elapsed in EARLY_WARNINGS.get(bucket_key, []):
+        if utilization >= threshold_util and elapsed_frac <= max_elapsed:
+            warning = "critical"
+            break
+        # Predictive: will we cross the threshold before max_elapsed?
+        if rate > 0:
+            time_to_threshold = (threshold_util - utilization) / rate  # hours
+            frac_at_threshold = (elapsed_secs + time_to_threshold * 3600) / window_secs
+            if frac_at_threshold <= max_elapsed and utilization > threshold_util * 0.7:
+                warning = "warning"
+
+    return {
+        "rate_pct_per_hour": rate,
+        "elapsed_frac": elapsed_frac,
+        "remaining_mins": mins_to_exhaust,
+        "warning": warning,
+    }
 
 
 def model_filter_for(bucket: str) -> str | None:
@@ -416,20 +474,33 @@ def _print_report(data: dict[str, Any]) -> None:
             if act_parts:
                 print(f"          {dot.join(act_parts)}")
 
-    # Binding constraint
+    # Binding constraint analysis — includes model-specific buckets
     five_h = data["buckets"].get("five_hour")
     seven_d = data["buckets"].get("seven_day")
+    model_buckets = {
+        k: v for k, v in data["buckets"].items() if k in ("seven_day_opus", "seven_day_sonnet")
+    }
+
     if five_h and seven_d:
+        print()                                                         # \n above divider
+        print(f"  {hr()}")
+        print()                                                         # \n below divider
+
         windows_per_week = 7 * 24 / 5  # 33.6
         max_from_5h = five_h["capacity"] * windows_per_week
         cap_7d = seven_d["capacity"]
         ratio = seven_d["capacity"] / max_from_5h * 100
-        print()                                                         # \n above divider
-        print(f"  {hr()}")
-        print()                                                         # \n below divider
         print(f"  {c(DIM, 'if you maxed every 5h window:')} {c(WHITE, f'${max_from_5h:,.0f}')}{c(DIM, '/7d')}")
         print(f"  {c(DIM, '7d cap:')} {c(WHITE, f'${cap_7d:,.0f}')}")
         print(f"  {c(DIM, '7d limits you to')} {c(YELLOW, f'{ratio:.0f}%')} {c(DIM, 'of theoretical 5h throughput')}")
+
+        # Model-specific constraints: separate opus/sonnet budgets can bind independently
+        for mb_name, mb_data in model_buckets.items():
+            short = mb_name.replace("seven_day_", "")
+            mb_cap = mb_data["capacity"]
+            # What fraction of 7d aggregate does this model-specific cap represent?
+            model_ratio = mb_cap / cap_7d * 100 if cap_7d > 0 else 0
+            print(f"  {c(DIM, f'{short} 7d cap:')} {c(WHITE, f'${mb_cap:,.0f}')} {c(DIM, f'({model_ratio:.0f}% of aggregate)')}")
 
     print()                                                             # \n above disclaimer
     print(f"  {c(DIM, '⚠  claude.ai usage during a tick makes budget estimates conservative')}")
