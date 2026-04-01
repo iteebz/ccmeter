@@ -4,8 +4,8 @@ import os
 
 from ccmeter.auth import fetch_account_id, get_credentials
 from ccmeter.db import DB_PATH, connect
-from ccmeter.display import BOLD, CYAN, DIM, GREEN, RED, WHITE, YELLOW, ago, c, hr
-from ccmeter.report import account_clause
+from ccmeter.display import BOLD, CYAN, DIM, GREEN, PINK, RED, WHITE, YELLOW, ago, c, hr
+from ccmeter.report import BUCKET_LABELS, account_clause, burn_rate
 
 
 def _daemon_status() -> tuple[str, str]:
@@ -50,7 +50,7 @@ def show_status():
 
     # per-bucket current state
     current = conn.execute(
-        f"""SELECT bucket, utilization, ts FROM usage_samples
+        f"""SELECT bucket, utilization, resets_at, ts FROM usage_samples
            WHERE {af()} AND id IN (SELECT MAX(id) FROM usage_samples WHERE {af()} GROUP BY bucket)
            ORDER BY bucket"""
     ).fetchall()
@@ -81,8 +81,46 @@ def show_status():
     print()
 
     if current:
+        # Window sizes for burn rate computation
+        window_hours = {"five_hour": 5.0, "seven_day": 168.0, "seven_day_opus": 168.0, "seven_day_sonnet": 168.0}
+
         for r in current:
             util = r["utilization"]
+            bucket = r["bucket"]
             color = GREEN if util < 50 else YELLOW if util < 80 else CYAN
-            print(f"    {r['bucket']:<22} {c(color, f'{util:5.1f}%')}  {c(DIM, ago(r['ts']))}")
+            label = BUCKET_LABELS.get(bucket, bucket)
+            line = f"    {label:<22} {c(color, f'{util:5.1f}%')}  {c(DIM, ago(r['ts']))}"
+
+            # Burn rate prediction
+            resets_at = r["resets_at"]
+            wh = window_hours.get(bucket)
+            if resets_at and wh and util > 0:
+                br = burn_rate(util, resets_at, wh)
+                if br:
+                    rate = br["rate_pct_per_hour"]
+                    mins = br["remaining_mins"]
+                    warning = br["warning"]
+
+                    if warning == "critical":
+                        line += f"  {c(RED, '▲')} {c(RED, f'{rate:.0f}%/h')}"
+                    elif warning == "warning":
+                        line += f"  {c(YELLOW, '▲')} {c(YELLOW, f'{rate:.0f}%/h')}"
+                    elif rate > 0:
+                        line += f"  {c(DIM, f'{rate:.0f}%/h')}"
+
+                    if mins < 60:
+                        line += f"  {c(PINK, f'~{mins:.0f}m left')}"
+                    elif mins < float("inf"):
+                        line += f"  {c(DIM, f'~{mins / 60:.0f}h left')}"
+
+            # Plateau detection: >95% and no change recently suggests rate-limited
+            if util >= 95:
+                recent = conn.execute(
+                    f"SELECT utilization FROM usage_samples WHERE bucket = ? AND {af()} ORDER BY id DESC LIMIT 3",
+                    (bucket,),
+                ).fetchall()
+                if len(recent) >= 3 and all(abs(row["utilization"] - util) < 1.0 for row in recent):
+                    line += f"  {c(RED, 'rate limited')}"
+
+            print(line)
         print()
