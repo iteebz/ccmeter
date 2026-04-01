@@ -20,6 +20,11 @@ from ccmeter.auth import Credentials, fetch_account_id, get_credentials
 from ccmeter.config import pinned_account
 from ccmeter.db import connect
 
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
+
 PIDFILE = Path.home() / ".ccmeter" / "poll.pid"
 HEALTH_FILE = Path.home() / ".ccmeter" / "health.json"
 LOG_DIR = Path.home() / ".ccmeter"
@@ -153,12 +158,8 @@ def _acquire_lock() -> IO[str]:
     f = PIDFILE.open("w")
     try:
         if sys.platform == "win32":
-            import msvcrt  # noqa: PLC0415
-
             msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
         else:
-            import fcntl  # noqa: PLC0415
-
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         print("error: another ccmeter poll is already running", file=sys.stderr)
