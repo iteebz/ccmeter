@@ -8,7 +8,7 @@ anthropic shows you a percentage bar. 21% used. but 21% of *what*? they've never
 
 twice in four months, limits changed during or after promotions. both times the community noticed. both times the explanation was "contrast effect." without numbers, you can't tell the difference between "i'm using more" and "they gave me less."
 
-ccmeter gives you the number. track it over time. if it drops, the cap shrank. see [docs/evidence.md](docs/evidence.md) for the receipts.
+ccmeter gives you the number. track it over time. if it drops, the cap shrank. see [docs/incidents.md](docs/incidents.md) for the receipts.
 
 ## what it measures
 
@@ -47,10 +47,14 @@ requires python 3.12+, claude code installed and signed in. macos and linux. zer
 
 ```bash
 ccmeter install          # background daemon, survives restarts
-ccmeter report           # see your budget
+ccmeter report           # budget, burn rate, binding constraint
 ccmeter report --json    # structured output for sharing
+ccmeter status           # live utilization, burn rate, daemon health
+ccmeter trend            # budget over time as a sparkline chart
+ccmeter account          # show account info, plan, tier
+ccmeter account --pin    # lock to current account (filters shared machines)
 ccmeter history          # raw usage tick history
-ccmeter status           # collection health
+ccmeter poll --fast      # 60s interval for higher resolution
 ccmeter uninstall        # remove daemon
 ```
 
@@ -78,7 +82,11 @@ ccmeter reads token data from local session logs that only claude code produces.
 
 - **multi-surface usage** — claude.ai, cowork, and claude code share limits but only claude code has local token logs. simultaneous use inflates counts.
 - **1% granularity** — the API reports whole percentages only. more samples over longer periods = better accuracy.
+- **cache write TTL** — anthropic charges different rates for 5-minute vs 1-hour cache writes. JSONL doesn't distinguish which was used. ccmeter uses the 5m price, which may underestimate by ~8% if claude code uses 1h caching.
+- **effort level** — opus defaults to medium effort for max subscribers. medium = fewer output tokens = less budget. not observable from JSONL. sessions at high effort cost more per percent.
 - **pro base is derived** — the pro base number is your budget divided by your tier multiplier. it's a prediction, not a measurement. a pro user running ccmeter would confirm it.
+
+see [docs/source.md](docs/source.md) for confirmed implementation details from the claude code source.
 
 ## help
 
