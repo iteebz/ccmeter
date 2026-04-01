@@ -163,9 +163,7 @@ def model_filter_for(bucket: str) -> str | None:
     return model_buckets.get(bucket)
 
 
-def tokens_in_window(
-    events: list[Any], t0: str, t1: str, model_prefix: str | None = None
-) -> dict[str, dict[str, int]]:
+def tokens_in_window(events: list[Any], t0: str, t1: str, model_prefix: str | None = None) -> dict[str, dict[str, int]]:
     """Sum token counts per model for events between two timestamps."""
     lo = bisect.bisect_left(events, t0, key=lambda e: e.ts)
     hi = bisect.bisect_right(events, t1, key=lambda e: e.ts)
@@ -474,12 +472,14 @@ def _print_report(data: dict[str, Any]) -> None:
             span_str = ""
         ticks_label = pl(bdata["ticks"], "tick")
 
-        print()                                                         # \n above divider
+        print()  # \n above divider
         print(f"  {hr()}")
-        print()                                                         # \n below divider
+        print()  # \n below divider
         print(f"  {c(BOLD + WHITE, window)}  {c(DIM, f'{ticks_label}{span_str}')}")
         if multiplier > 1:
-            print(f"  {c(BOLD + WHITE, f'${capacity:.0f}')} {c(DIM, approx)} {c(DIM, f'{multiplier}x')} {c(WHITE, f'${base:.0f}')} {c(DIM, 'pro base')}")
+            print(
+                f"  {c(BOLD + WHITE, f'${capacity:.0f}')} {c(DIM, approx)} {c(DIM, f'{multiplier}x')} {c(WHITE, f'${base:.0f}')} {c(DIM, 'pro base')}"
+            )
         else:
             print(f"  {c(BOLD + WHITE, f'${capacity:.0f}')} {c(DIM, 'budget')}")
 
@@ -497,8 +497,10 @@ def _print_report(data: dict[str, Any]) -> None:
                 f"{c(PURPLE, human(tpp['cache_read']))} {c(DIM, 'cr')}",
                 f"{c(PURPLE, human(tpp['cache_create']))} {c(DIM, 'cw')}",
             ]
-            print()                                                     # \n between models
-            print(f"  {c(CYAN, f'{short_model:<8}')}{c(WHITE, f'${cost:.2f}')}{cache_str} {c(DIM, '|')} {dot.join(token_parts)}")
+            print()  # \n between models
+            print(
+                f"  {c(CYAN, f'{short_model:<8}')}{c(WHITE, f'${cost:.2f}')}{cache_str} {c(DIM, '|')} {dot.join(token_parts)}"
+            )
 
             act_parts = []
             for key, label in [("tool_calls", "tools"), ("reads", "reads"), ("writes", "edits"), ("bash", "bash")]:
@@ -515,14 +517,12 @@ def _print_report(data: dict[str, Any]) -> None:
     # Binding constraint analysis — includes model-specific buckets
     five_h = data["buckets"].get("five_hour")
     seven_d = data["buckets"].get("seven_day")
-    model_buckets = {
-        k: v for k, v in data["buckets"].items() if k in ("seven_day_opus", "seven_day_sonnet")
-    }
+    model_buckets = {k: v for k, v in data["buckets"].items() if k in ("seven_day_opus", "seven_day_sonnet")}
 
     if five_h and seven_d:
-        print()                                                         # \n above divider
+        print()  # \n above divider
         print(f"  {hr()}")
-        print()                                                         # \n below divider
+        print()  # \n below divider
 
         windows_per_week = 7 * 24 / 5  # 33.6
         max_from_5h = five_h["capacity"] * windows_per_week
@@ -538,15 +538,17 @@ def _print_report(data: dict[str, Any]) -> None:
             mb_cap = mb_data["capacity"]
             # What fraction of 7d aggregate does this model-specific cap represent?
             model_ratio = mb_cap / cap_7d * 100 if cap_7d > 0 else 0
-            print(f"  {c(DIM, f'{short} 7d cap:')} {c(WHITE, f'${mb_cap:,.0f}')} {c(DIM, f'({model_ratio:.0f}% of aggregate)')}")
+            print(
+                f"  {c(DIM, f'{short} 7d cap:')} {c(WHITE, f'${mb_cap:,.0f}')} {c(DIM, f'({model_ratio:.0f}% of aggregate)')}"
+            )
 
     # Live burn rate — connects calibrated budget to current utilization
     live = data.get("live", {})
     live_buckets = {k: v for k, v in live.items() if v.get("burn") and k in data["buckets"]}
     if live_buckets:
-        print()                                                         # \n above divider
+        print()  # \n above divider
         print(f"  {hr()}")
-        print()                                                         # \n below divider
+        print()  # \n below divider
         print(f"  {c(BOLD + WHITE, 'now')}")
 
         # Find which bucket exhausts first
@@ -599,6 +601,6 @@ def _print_report(data: dict[str, Any]) -> None:
                 f"{binding}"
             )
 
-    print()                                                             # \n above disclaimer
+    print()  # \n above disclaimer
     print(f"  {c(DIM, '⚠  claude.ai usage during a tick makes budget estimates conservative')}")
-    print()                                                             # trailing \n
+    print()  # trailing \n

@@ -135,9 +135,7 @@ def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> Activit
     }
 
 
-def activity_in_window_by_model(
-    events: list[ActivityEvent], t0: str, t1: str
-) -> dict[str, ActivityWindow]:
+def activity_in_window_by_model(events: list[ActivityEvent], t0: str, t1: str) -> dict[str, ActivityWindow]:
     """Sum activity metrics per model for events between two timestamps."""
     import bisect
     from collections import defaultdict
