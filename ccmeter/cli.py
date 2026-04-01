@@ -14,10 +14,12 @@ def version():
 
 
 @fncli.cli("ccmeter")
-def poll(interval: int = 120, once: bool = False):
-    """poll usage API and record samples to local sqlite"""
+def poll(interval: int = 120, once: bool = False, fast: bool = False):
+    """poll usage API and record samples to local sqlite. --fast for 60s interval"""
     from ccmeter.poll import run_poll
 
+    if fast:
+        interval = 60
     run_poll(interval=interval, once=once)
 
 

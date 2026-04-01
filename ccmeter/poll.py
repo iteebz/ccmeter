@@ -19,6 +19,7 @@ from ccmeter.auth import Credentials, fetch_account_id, get_credentials
 from ccmeter.db import connect
 
 PIDFILE = Path.home() / ".ccmeter" / "poll.pid"
+HEALTH_FILE = Path.home() / ".ccmeter" / "health.json"
 LOG_DIR = Path.home() / ".ccmeter"
 MAX_LOG_BYTES = 512 * 1024  # 512KB
 
@@ -26,6 +27,8 @@ USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 BETA_HEADER = "oauth-2025-04-20"
 
 BUCKETS = ("five_hour", "seven_day", "seven_day_sonnet", "seven_day_opus", "seven_day_cowork", "extra_usage")
+
+_MAX_RECENT_ERRORS = 5
 
 _running = True
 
@@ -128,11 +131,11 @@ def _next_delay(result: PollResult, interval: int, backoff: int) -> int:
     if result.data:
         return interval
 
-    # 429: respect Retry-After or use short fixed delay (don't exponential backoff)
+    # 429: respect Retry-After fully, or use interval as floor
     if result.status == 429:
         if result.retry_after:
-            return min(result.retry_after, 120)
-        return min(interval, 60)
+            return result.retry_after
+        return max(interval, 60)
 
     # 401/403: cred refresh will happen separately, short retry
     if result.status in (401, 403):
@@ -162,6 +165,27 @@ def _acquire_lock() -> IO[str]:
     f.write(str(os.getpid()))
     f.flush()
     return f
+
+
+def _write_health(
+    ok: bool,
+    interval: int,
+    consecutive_failures: int,
+    recent_errors: list[dict[str, Any]],
+) -> None:
+    """Atomically write daemon health to a JSON file. Single snapshot, no history."""
+    from datetime import datetime, timezone
+
+    health = {
+        "ts": datetime.now(tz=timezone.utc).isoformat(),
+        "ok": ok,
+        "interval": interval,
+        "consecutive_failures": consecutive_failures,
+        "recent_errors": recent_errors[-_MAX_RECENT_ERRORS:],
+    }
+    tmp = HEALTH_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(health))
+    tmp.rename(HEALTH_FILE)
 
 
 def _rotate_logs() -> None:
@@ -212,6 +236,7 @@ def run_poll(interval: int = 120, once: bool = False):
 
     backoff = interval
     consecutive_failures = 0
+    recent_errors: list[dict[str, Any]] = []
     account_dirty = False  # true after cred refresh; resolve on next successful fetch
     while _running:
         result = fetch_usage(creds)
@@ -229,8 +254,19 @@ def run_poll(interval: int = 120, once: bool = False):
                 last_seen = record_samples(result.data, last_seen, conn, tier=tier, account_id=account_id)
             backoff = interval
             consecutive_failures = 0
+            recent_errors.clear()
+            _write_health(True, interval, 0, [])
         else:
+            from datetime import datetime, timezone
+
             consecutive_failures += 1
+            recent_errors.append({
+                "ts": datetime.now(tz=timezone.utc).isoformat(),
+                "status": result.status,
+                "error": (result.error[:200] if result.error else ""),
+            })
+            if len(recent_errors) > _MAX_RECENT_ERRORS:
+                recent_errors = recent_errors[-_MAX_RECENT_ERRORS:]
 
             # auth failures: refresh creds and retry immediately if token changed
             if result.status in (401, 403):
@@ -251,6 +287,8 @@ def run_poll(interval: int = 120, once: bool = False):
                     account_dirty = True
                     print("  refreshed credentials (fallback)")
                     consecutive_failures = 0
+
+            _write_health(False, interval, consecutive_failures, recent_errors)
 
             delay = _next_delay(result, interval, backoff)
             backoff = delay

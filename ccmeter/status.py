@@ -1,10 +1,13 @@
 """Show current collection status."""
 
+import json
 import os
+from typing import Any
 
 from ccmeter.auth import fetch_account_id, get_credentials
 from ccmeter.db import DB_PATH, connect
 from ccmeter.display import BOLD, CYAN, DIM, GREEN, PINK, RED, WHITE, YELLOW, ago, c, hr
+from ccmeter.poll import HEALTH_FILE
 from ccmeter.report import BUCKET_LABELS, account_clause, burn_rate
 
 
@@ -19,6 +22,15 @@ def _daemon_status() -> tuple[str, str]:
         return f"running (pid {pid})", GREEN
     except (ValueError, OSError):
         return "stale pidfile", YELLOW
+
+
+def _read_health() -> dict[str, Any] | None:
+    if not HEALTH_FILE.exists():
+        return None
+    try:
+        return json.loads(HEALTH_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 def _db_size() -> str:
@@ -68,6 +80,18 @@ def show_status():
     print(f"  {c(DIM, 'daemon')}   {c(daemon_color, daemon_text)}")
     print(f"  {c(DIM, 'db')}       {c(DIM, _db_size())}  {c(DIM, str(DB_PATH))}")
     print(f"  {c(DIM, 'samples')}  {c(WHITE, total)}  {c(DIM, f'({recent_count} last 24h)')}")
+
+    # Daemon health from health.json
+    health = _read_health()
+    if health and not health.get("ok", True):
+        fails = health.get("consecutive_failures", 0)
+        errors = health.get("recent_errors", [])
+        if errors:
+            codes = [str(e.get("status", "?")) for e in errors]
+            last_ts = errors[-1].get("ts", "")
+            err_age = ago(last_ts) if last_ts else ""
+            err_color = RED if fails >= 5 else YELLOW
+            print(f"  {c(DIM, 'health')}   {c(err_color, f'{fails} failures')}  {c(DIM, ' '.join(codes))}  {c(DIM, err_age)}")
     if latest:
         freshness = ago(latest["ts"])
         fresh_color = (
