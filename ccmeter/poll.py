@@ -186,8 +186,11 @@ def run_poll(interval: int = 120, once: bool = False):
         print("make sure Claude Code is installed and you've signed in.", file=sys.stderr)
         sys.exit(1)
 
+    from ccmeter.config import pinned_account
+
     tier = creds.subscription_type or creds.rate_limit_tier
     account_id = fetch_account_id(creds.access_token)
+    pinned = pinned_account()
     conn = connect()
     last_seen = seed_last_seen(conn, account_id=account_id)
 
@@ -197,6 +200,11 @@ def run_poll(interval: int = 120, once: bool = False):
     print(f"ccmeter polling every {interval}s")
     if account_id:
         print(f"  account: {account_id[:8]}…")
+    if pinned:
+        if pinned == account_id:
+            print(f"  pinned: {pinned[:8]}… (match)")
+        else:
+            print(f"  pinned: {pinned[:8]}… (mismatch — will skip)")
     if tier:
         print(f"  tier: {tier}")
     if last_seen:
@@ -215,7 +223,10 @@ def run_poll(interval: int = 120, once: bool = False):
                     last_seen = seed_last_seen(conn, account_id=account_id)
                     print(f"  account changed: {account_id[:8]}…")
                 account_dirty = False
-            last_seen = record_samples(result.data, last_seen, conn, tier=tier, account_id=account_id)
+            if pinned and account_id != pinned:
+                pass  # skip — wrong account
+            else:
+                last_seen = record_samples(result.data, last_seen, conn, tier=tier, account_id=account_id)
             backoff = interval
             consecutive_failures = 0
         else:

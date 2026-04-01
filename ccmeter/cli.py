@@ -69,6 +69,71 @@ def status():
 
 
 @fncli.cli("ccmeter")
+def account(pin: bool = False, unpin: bool = False):
+    """show account info. --pin to lock to current account. --unpin to clear"""
+    from ccmeter.auth import fetch_account_id, get_credentials
+    from ccmeter.config import pin_account, pinned_account, unpin_account
+    from ccmeter.db import connect
+    from ccmeter.display import BOLD, CYAN, DIM, GREEN, WHITE, YELLOW, c, hr
+
+    if unpin:
+        unpin_account()
+        print(f"  {c(GREEN, 'unpinned')} — polling all accounts")
+        return
+
+    creds = get_credentials()
+    if not creds:
+        print("error: no credentials found", file=sys.stderr)
+        raise SystemExit(1)
+
+    active_id = fetch_account_id(creds.access_token)
+    tier = creds.subscription_type or "unknown"
+    rate_tier = creds.rate_limit_tier or "unknown"
+    pinned = pinned_account()
+
+    if pin:
+        if not active_id:
+            print("error: could not resolve account id", file=sys.stderr)
+            raise SystemExit(1)
+        pin_account(active_id)
+        print(f"  {c(GREEN, 'pinned')} to {c(WHITE, active_id[:8])}…")
+        print("  poller will skip data from other accounts")
+        return
+
+    print()
+    print(f"  {c(BOLD + WHITE, 'account')}")
+    print(f"  {hr()}")
+    print(f"  {c(DIM, 'active')}   {c(WHITE, active_id[:8] + '…') if active_id else c(YELLOW, 'unknown')}")
+    print(f"  {c(DIM, 'plan')}     {c(CYAN, tier)}")
+    print(f"  {c(DIM, 'tier')}     {c(DIM, rate_tier)}")
+    if pinned:
+        is_match = active_id == pinned
+        pin_color = GREEN if is_match else YELLOW
+        pin_label = "active" if is_match else "mismatch — polling paused"
+        print(f"  {c(DIM, 'pinned')}   {c(pin_color, pinned[:8] + '…')} {c(DIM, pin_label)}")
+    else:
+        print(f"  {c(DIM, 'pinned')}   {c(DIM, 'none — tracking all accounts')}")
+
+    # Per-account sample counts
+    conn = connect()
+    rows = conn.execute(
+        "SELECT account_id, tier, COUNT(*) as n, MAX(ts) as last_ts FROM usage_samples GROUP BY account_id"
+    ).fetchall()
+    conn.close()
+
+    if rows:
+        print()
+        for r in rows:
+            aid = r["account_id"] or "unknown"
+            short = aid[:8] + "…" if len(aid) > 8 else aid
+            marker = " ←" if aid == active_id else ""
+            n = r["n"]
+            t = r["tier"] or "?"
+            print(f"    {c(WHITE, short)}  {c(DIM, t)}  {c(DIM, f'{n} samples')}{marker}")
+    print()
+
+
+@fncli.cli("ccmeter")
 def update():
     """check for updates and install latest version"""
     from ccmeter.update import run_update
@@ -107,6 +172,7 @@ def _print_help():
         ("status", "current utilization and collection health"),
         ("trend", "budget over time as a sparkline chart"),
         ("share", "anonymized data for crowdsourced comparison"),
+        ("account", "show account info and pin/unpin"),
         ("history", "raw usage samples"),
     ]:
         print(f"  {c(WHITE, f'{cmd:<10}')} {c(DIM, desc)}")
