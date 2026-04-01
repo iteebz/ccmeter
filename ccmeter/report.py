@@ -104,7 +104,10 @@ def tier_label(rate_limit_tier: str, multiplier: int) -> str:
 def burn_rate(utilization: float, resets_at: str, window_hours: float) -> dict[str, Any] | None:
     """Compute burn rate and predict exhaustion from current utilization and reset time.
 
-    Returns dict with rate, minutes_to_exhaustion, warning_level, or None if data insufficient.
+    The rolling window means resets_at is when the *oldest* usage in the current window
+    expires — not a fixed endpoint. remaining_secs / window_secs gives the fraction of
+    the window still ahead, and (1 - that) is the fraction already consumed by time.
+    This is the best approximation we have without knowing the exact window start.
     """
     from datetime import datetime, timezone
 
@@ -118,28 +121,29 @@ def burn_rate(utilization: float, resets_at: str, window_hours: float) -> dict[s
         return None
 
     window_secs = window_hours * 3600
+    # Clamp: remaining can't exceed window (would mean elapsed < 0)
+    remaining_secs = min(remaining_secs, window_secs)
     elapsed_secs = window_secs - remaining_secs
-    if elapsed_secs <= 0:
+    if elapsed_secs < 60:
         return None
 
     elapsed_frac = elapsed_secs / window_secs
-    # pct per hour at current pace
-    rate = utilization / (elapsed_secs / 3600) if elapsed_secs > 0 else 0.0
+    rate = utilization / (elapsed_secs / 3600)
     remaining_pct = 100.0 - utilization
     mins_to_exhaust = (remaining_pct / rate * 60) if rate > 0 else float("inf")
 
-    # Check against early warning thresholds
+    # Check against early warning thresholds (highest severity first)
     bucket_key = "five_hour" if window_hours <= 6 else "seven_day"
     warning = None
     for threshold_util, max_elapsed in EARLY_WARNINGS.get(bucket_key, []):
         if utilization >= threshold_util and elapsed_frac <= max_elapsed:
             warning = "critical"
             break
-        # Predictive: will we cross the threshold before max_elapsed?
-        if rate > 0:
-            time_to_threshold = (threshold_util - utilization) / rate  # hours
-            frac_at_threshold = (elapsed_secs + time_to_threshold * 3600) / window_secs
-            if frac_at_threshold <= max_elapsed and utilization > threshold_util * 0.7:
+        # Predictive: on pace to cross threshold before the danger-zone time?
+        if rate > 0 and utilization < threshold_util:
+            hours_to_threshold = (threshold_util - utilization) / rate
+            frac_at_threshold = (elapsed_secs + hours_to_threshold * 3600) / window_secs
+            if frac_at_threshold <= max_elapsed:
                 warning = "warning"
 
     return {

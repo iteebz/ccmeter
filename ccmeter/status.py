@@ -60,8 +60,6 @@ def show_status():
         f"SELECT COUNT(*) as n FROM usage_samples WHERE {af()} AND ts > datetime('now', '-24 hours')"
     ).fetchone()["n"]
 
-    conn.close()
-
     daemon_text, daemon_color = _daemon_status()
 
     print()
@@ -82,7 +80,14 @@ def show_status():
 
     if current:
         # Window sizes for burn rate computation
-        window_hours = {"five_hour": 5.0, "seven_day": 168.0, "seven_day_opus": 168.0, "seven_day_sonnet": 168.0}
+        window_hours: dict[str, float] = {
+            "five_hour": 5.0,
+            "seven_day": 168.0,
+            "seven_day_opus": 168.0,
+            "seven_day_sonnet": 168.0,
+            "seven_day_cowork": 168.0,
+            "seven_day_oauth_apps": 168.0,
+        }
 
         for r in current:
             util = r["utilization"]
@@ -101,17 +106,27 @@ def show_status():
                     mins = br["remaining_mins"]
                     warning = br["warning"]
 
+                    # %/day for weekly buckets, %/h for 5h
+                    if wh > 24:
+                        rate_str = f"{rate * 24:.0f}%/d"
+                    else:
+                        rate_str = f"{rate:.0f}%/h"
+
                     if warning == "critical":
-                        line += f"  {c(RED, '▲')} {c(RED, f'{rate:.0f}%/h')}"
+                        line += f"  {c(RED, '▲')} {c(RED, rate_str)}"
                     elif warning == "warning":
-                        line += f"  {c(YELLOW, '▲')} {c(YELLOW, f'{rate:.0f}%/h')}"
+                        line += f"  {c(YELLOW, '▲')} {c(YELLOW, rate_str)}"
                     elif rate > 0:
-                        line += f"  {c(DIM, f'{rate:.0f}%/h')}"
+                        line += f"  {c(DIM, rate_str)}"
 
                     if mins < 60:
                         line += f"  {c(PINK, f'~{mins:.0f}m left')}"
                     elif mins < float("inf"):
-                        line += f"  {c(DIM, f'~{mins / 60:.0f}h left')}"
+                        hours = mins / 60
+                        if hours >= 24:
+                            line += f"  {c(DIM, f'~{hours / 24:.0f}d left')}"
+                        else:
+                            line += f"  {c(DIM, f'~{hours:.0f}h left')}"
 
             # Plateau detection: >95% and no change recently suggests rate-limited
             if util >= 95:
@@ -124,3 +139,5 @@ def show_status():
 
             print(line)
         print()
+
+    conn.close()
