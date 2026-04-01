@@ -17,10 +17,14 @@ from ccmeter.display import BOLD, CYAN, DIM, GREEN, PINK, PURPLE, RED, WHITE, YE
 from ccmeter.scan import scan
 
 # API pricing per MTok (USD).
-# Source: anthropic.com/pricing — Opus 4.6/Sonnet 4.6/Haiku 4.5
+# Source: platform.claude.com/docs/en/about-claude/pricing
+# cache_create uses the 5-minute TTL price. 1h TTL is ~1.6x more expensive
+# but JSONL doesn't distinguish which TTL was used. ~8% underestimate if all 1h.
 PRICING = {
     "claude-opus-4-6": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_create": 6.25},
+    "claude-opus-4-5": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_create": 6.25},
     "claude-sonnet-4-6": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_create": 3.75},
+    "claude-sonnet-4-5": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_create": 3.75},
     "claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cache_read": 0.10, "cache_create": 1.25},
 }
 
@@ -475,7 +479,10 @@ def _print_report(data: dict[str, Any]) -> None:
         print()  # \n above divider
         print(f"  {hr()}")
         print()  # \n below divider
-        print(f"  {c(BOLD + WHITE, window)}  {c(DIM, f'{ticks_label}{span_str}')}")
+        confidence = ""
+        if bdata["ticks"] < 3:
+            confidence = f"  {c(YELLOW, 'low confidence')}"
+        print(f"  {c(BOLD + WHITE, window)}  {c(DIM, f'{ticks_label}{span_str}')}{confidence}")
         if multiplier > 1:
             print(
                 f"  {c(BOLD + WHITE, f'${capacity:.0f}')} {c(DIM, approx)} {c(DIM, f'{multiplier}x')} {c(WHITE, f'${base:.0f}')} {c(DIM, 'pro base')}"
