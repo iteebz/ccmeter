@@ -12,10 +12,12 @@ import types
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Any
 
 from ccmeter.auth import Credentials, fetch_account_id, get_credentials
+from ccmeter.config import pinned_account
 from ccmeter.db import connect
 
 PIDFILE = Path.home() / ".ccmeter" / "poll.pid"
@@ -151,11 +153,11 @@ def _acquire_lock() -> IO[str]:
     f = PIDFILE.open("w")
     try:
         if sys.platform == "win32":
-            import msvcrt
+            import msvcrt  # noqa: PLC0415
 
             msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
         else:
-            import fcntl
+            import fcntl  # noqa: PLC0415
 
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
@@ -174,8 +176,6 @@ def _write_health(
     recent_errors: list[dict[str, Any]],
 ) -> None:
     """Atomically write daemon health to a JSON file. Single snapshot, no history."""
-    from datetime import datetime, timezone
-
     health = {
         "ts": datetime.now(tz=timezone.utc).isoformat(),
         "ok": ok,
@@ -209,8 +209,6 @@ def run_poll(interval: int = 120, once: bool = False):
         print("ccmeter reads the same credential Claude Code uses.", file=sys.stderr)
         print("make sure Claude Code is installed and you've signed in.", file=sys.stderr)
         sys.exit(1)
-
-    from ccmeter.config import pinned_account
 
     tier = creds.subscription_type or creds.rate_limit_tier
     account_id = fetch_account_id(creds.access_token)
@@ -257,8 +255,6 @@ def run_poll(interval: int = 120, once: bool = False):
             recent_errors.clear()
             _write_health(True, interval, 0, [])
         else:
-            from datetime import datetime, timezone
-
             consecutive_failures += 1
             recent_errors.append({
                 "ts": datetime.now(tz=timezone.utc).isoformat(),

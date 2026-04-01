@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
+import bisect
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
@@ -97,8 +98,6 @@ class ActivityWindow(TypedDict):
 
 def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> ActivityWindow:
     """Sum activity metrics for events between two timestamps."""
-    import bisect
-
     lo = bisect.bisect_left(events, t0, key=lambda e: e.ts)
     hi = bisect.bisect_right(events, t1, key=lambda e: e.ts)
     prompts = 0
@@ -137,9 +136,6 @@ def activity_in_window(events: list[ActivityEvent], t0: str, t1: str) -> Activit
 
 def activity_in_window_by_model(events: list[ActivityEvent], t0: str, t1: str) -> dict[str, ActivityWindow]:
     """Sum activity metrics per model for events between two timestamps."""
-    import bisect
-    from collections import defaultdict
-
     lo = bisect.bisect_left(events, t0, key=lambda e: e.ts)
     hi = bisect.bisect_right(events, t1, key=lambda e: e.ts)
     by_model: dict[str, list[ActivityEvent]] = defaultdict(list)

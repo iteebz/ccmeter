@@ -1,8 +1,10 @@
 """Install/uninstall ccmeter as a background daemon that survives restarts."""
 
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -150,9 +152,6 @@ def _uninstall_systemd() -> int:
 
 
 def _install_windows(ccmeter_bin: str) -> int:
-    import os
-    import tempfile
-
     log_dir = Path.home() / ".ccmeter"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "poll.log"

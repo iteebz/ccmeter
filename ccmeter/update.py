@@ -12,7 +12,7 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from ccmeter import __version__
-from ccmeter.display import progress, progress_done
+from ccmeter.display import BOLD, DIM, WHITE, c, progress, progress_done
 
 PYPI_URL = "https://pypi.org/pypi/ccmeter/json"
 CACHE_PATH = Path.home() / ".ccmeter" / "version_check.json"
@@ -100,8 +100,6 @@ def check_version(quiet: bool = False) -> str | None:
 
     if _version_tuple(latest) > _version_tuple(__version__):
         if not quiet:
-            from ccmeter.display import BOLD, DIM, WHITE, c
-
             print(f"  {c(BOLD + WHITE, latest)} {c(DIM, 'available')}  →  {c(WHITE, 'ccmeter update')}")
         return latest
     return None

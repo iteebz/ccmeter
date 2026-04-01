@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import sys
 import time
-from datetime import timezone
+from datetime import datetime, timezone
 
 # ANSI codes
 DIM = "\033[2m"
@@ -54,8 +54,6 @@ def human(n: int | float) -> str:
 
 def local_ts(iso_ts: str) -> str:
     """Convert UTC ISO timestamp to local date + time: '2026-03-30 19:23'."""
-    from datetime import datetime
-
     utc = datetime.fromisoformat(iso_ts)
     if utc.tzinfo is None:
         utc = utc.replace(tzinfo=timezone.utc)
@@ -65,8 +63,6 @@ def local_ts(iso_ts: str) -> str:
 
 def ago(iso_ts: str) -> str:
     """Convert ISO timestamp to relative time: '2h ago', '3d ago'."""
-    from datetime import datetime, timezone
-
     then = datetime.fromisoformat(iso_ts)
     delta = datetime.now(tz=timezone.utc) - then
     secs = int(delta.total_seconds())

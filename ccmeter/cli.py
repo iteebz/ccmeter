@@ -16,7 +16,7 @@ def version():
 @fncli.cli("ccmeter")
 def poll(interval: int = 120, once: bool = False, fast: bool = False):
     """poll usage API and record samples to local sqlite. --fast for 60s interval"""
-    from ccmeter.poll import run_poll
+    from ccmeter.poll import run_poll  # noqa: PLC0415
 
     if fast:
         interval = 60
@@ -26,11 +26,11 @@ def poll(interval: int = 120, once: bool = False, fast: bool = False):
 @fncli.cli("ccmeter")
 def report(days: int = 30, json: bool = False, recache: bool = False):
     """calibration report: budget per window and trend. --json for export. --recache to rebuild scan cache"""
-    from ccmeter.report import run_report
+    from ccmeter.report import run_report  # noqa: PLC0415
 
     run_report(days=days, json_output=json, recache=recache)
     if not json:
-        from ccmeter.update import check_version
+        from ccmeter.update import check_version  # noqa: PLC0415
 
         check_version()
 
@@ -38,7 +38,7 @@ def report(days: int = 30, json: bool = False, recache: bool = False):
 @fncli.cli("ccmeter")
 def share(days: int = 30):
     """anonymized output for crowdsourced comparison"""
-    from ccmeter.share import run_share
+    from ccmeter.share import run_share  # noqa: PLC0415
 
     run_share(days=days)
 
@@ -46,7 +46,7 @@ def share(days: int = 30):
 @fncli.cli("ccmeter")
 def history(days: int = 7, json: bool = False):
     """show raw usage sample history"""
-    from ccmeter.history import show_history
+    from ccmeter.history import show_history  # noqa: PLC0415
 
     show_history(days=days, json_output=json)
 
@@ -54,7 +54,7 @@ def history(days: int = 7, json: bool = False):
 @fncli.cli("ccmeter")
 def trend(days: int = 30, recache: bool = False):
     """sparkline chart of budget over time from calibration ticks"""
-    from ccmeter.trend import show_trend
+    from ccmeter.trend import show_trend  # noqa: PLC0415
 
     show_trend(days=days, recache=recache)
 
@@ -62,10 +62,10 @@ def trend(days: int = 30, recache: bool = False):
 @fncli.cli("ccmeter")
 def status():
     """show current usage and collection stats"""
-    from ccmeter.status import show_status
+    from ccmeter.status import show_status  # noqa: PLC0415
 
     show_status()
-    from ccmeter.update import check_version
+    from ccmeter.update import check_version  # noqa: PLC0415
 
     check_version()
 
@@ -73,10 +73,10 @@ def status():
 @fncli.cli("ccmeter")
 def account(pin: bool = False, unpin: bool = False):
     """show account info. --pin to lock to current account. --unpin to clear"""
-    from ccmeter.auth import fetch_account_id, get_credentials
-    from ccmeter.config import pin_account, pinned_account, unpin_account
-    from ccmeter.db import connect
-    from ccmeter.display import BOLD, CYAN, DIM, GREEN, WHITE, YELLOW, c, hr
+    from ccmeter.auth import fetch_account_id, get_credentials  # noqa: PLC0415
+    from ccmeter.config import pin_account, pinned_account, unpin_account  # noqa: PLC0415
+    from ccmeter.db import connect  # noqa: PLC0415
+    from ccmeter.display import BOLD, CYAN, DIM, GREEN, WHITE, YELLOW, c, hr  # noqa: PLC0415
 
     if unpin:
         unpin_account()
@@ -138,7 +138,7 @@ def account(pin: bool = False, unpin: bool = False):
 @fncli.cli("ccmeter")
 def update():
     """check for updates and install latest version"""
-    from ccmeter.update import run_update
+    from ccmeter.update import run_update  # noqa: PLC0415
 
     run_update()
 
@@ -146,7 +146,7 @@ def update():
 @fncli.cli("ccmeter")
 def install():
     """install ccmeter as a background daemon (survives restarts)"""
-    from ccmeter.daemon import install as do_install
+    from ccmeter.daemon import install as do_install  # noqa: PLC0415
 
     raise SystemExit(do_install())
 
@@ -154,13 +154,13 @@ def install():
 @fncli.cli("ccmeter")
 def uninstall():
     """stop and remove the background daemon"""
-    from ccmeter.daemon import uninstall as do_uninstall
+    from ccmeter.daemon import uninstall as do_uninstall  # noqa: PLC0415
 
     raise SystemExit(do_uninstall())
 
 
 def _print_help():
-    from ccmeter.display import BOLD, DIM, RESET, WHITE, c, gradient_text, hr
+    from ccmeter.display import BOLD, DIM, RESET, WHITE, c, gradient_text, hr  # noqa: PLC0415
 
     print()
     print(f"  {BOLD}{gradient_text('ccmeter')}{RESET} {c(DIM, __version__)}")
@@ -202,7 +202,7 @@ def main():
     args = sys.argv[1:]
     if not args or args == ["--help"] or args == ["-h"]:
         _print_help()
-        from ccmeter.update import check_version
+        from ccmeter.update import check_version  # noqa: PLC0415
 
         check_version()
         raise SystemExit(0)

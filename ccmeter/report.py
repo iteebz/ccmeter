@@ -7,6 +7,7 @@ import json
 import sqlite3
 from collections import defaultdict
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from ccmeter import __version__
@@ -113,8 +114,6 @@ def burn_rate(utilization: float, resets_at: str, window_hours: float) -> dict[s
     the window still ahead, and (1 - that) is the fraction already consumed by time.
     This is the best approximation we have without knowing the exact window start.
     """
-    from datetime import datetime, timezone
-
     now = datetime.now(tz=timezone.utc)
     reset = datetime.fromisoformat(resets_at)
     if reset.tzinfo is None:
@@ -363,8 +362,6 @@ def run_report(days: int = 30, json_output: bool = False, recache: bool = False)
         base_budget = capacity / multiplier if multiplier > 1 else capacity
 
         # Hours spanned: first sample in this bucket to now
-        from datetime import datetime, timezone
-
         row = conn.execute(
             "SELECT MIN(ts) FROM usage_samples WHERE bucket = ?",
             (bucket,),

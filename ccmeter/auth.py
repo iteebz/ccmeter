@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 
 PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 BETA_HEADER = "oauth-2025-04-20"
@@ -82,8 +84,6 @@ def _run_keychain(args: list[str]) -> Credentials | None:
 
 
 def _macos_keychain() -> Credentials | None:
-    import os
-
     user = os.environ.get("USER", "")
     return _run_keychain(["security", "find-generic-password", "-a", user, "-s", "Claude Code-credentials", "-w"])
 
@@ -94,8 +94,6 @@ def _linux_secret() -> Credentials | None:
 
 def _windows_credential() -> Credentials | None:
     """Read Claude Code credentials from ~/.claude/.credentials.json."""
-    from pathlib import Path
-
     cred_file = Path.home() / ".claude" / ".credentials.json"
     try:
         return _parse_credentials(cred_file.read_text(encoding="utf-8"))

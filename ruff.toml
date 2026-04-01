@@ -36,7 +36,6 @@ ignore = [
     "S607",     # partial executable path
     "S608",     # SQL injection — account_clause() returns hardcoded fragments from API-sourced UUIDs
     "T201",     # print() is the CLI output primitive
-    "PLC0415",  # deferred imports for fast CLI startup
 ]
 
 [lint.per-file-ignores]
